@@ -6,6 +6,7 @@ from gym.spaces import Discrete, Box
 import torch
 from tensordict import TensorDict
 from torchrl.envs import GymWrapper
+
 # -----------------------------
 # Global Settings and Constants
 # -----------------------------
@@ -36,16 +37,14 @@ tetrominoes = {
 
 def new_piece():
     """Create a new random tetromino with its shape and spawn position."""
-    t = random.randint(1, 7)
+    t = random.randint(1, 7) #4
     shape = tetrominoes[t].copy()
     h, w = shape.shape
-    # spawn just above the board, centered
     pos = np.array([-h, (BOARD_WIDTH - w) // 2], dtype=int)
     return {'type': t, 'shape': shape, 'pos': pos}
 
 def rotate_piece(piece):
     """Rotate shape 90° clockwise."""
-    # np.rot90 with k=-1 rotates clockwise
     return np.rot90(piece['shape'], k=-1)
 
 def check_collision(board, piece):
@@ -98,12 +97,11 @@ class TetrisEnv(gym.Env):
         self.board_h = BOARD_HEIGHT
         self.block_size = BLOCK_SIZE
 
-        # 4 actions: left, right, rotate, soft drop
         self.action_space = Discrete(4)
-        # Observation: H×W×3 float32 image in [0,1]
+        # batch_size=1, H×W×3 float32 image in [0,1]
         self.observation_space = Box(
             low=0.0, high=1.0,
-            shape=(self.board_h, self.board_w, 3),
+            shape=(1, self.board_h, self.board_w, 3),
             dtype=np.float32
         )
         self.reset()
@@ -113,12 +111,12 @@ class TetrisEnv(gym.Env):
         self.current_piece = new_piece()
         self.game_over = False
         self.total_lines = 0
-        return self._get_obs(), {}
+        obs = self._get_obs()            # shape (H, W, 3)
+        return obs[None, ...], {}        # shape (1, H, W, 3)
 
     def step(self, action):
         reward = 0
-
-        # --- apply action ---
+        # Agent action
         if action == 0:  # left
             self.current_piece['pos'][1] -= 1
             if check_collision(self.board, self.current_piece):
@@ -137,7 +135,7 @@ class TetrisEnv(gym.Env):
             if check_collision(self.board, self.current_piece):
                 self.current_piece['pos'][0] -= 1
 
-        # --- gravity ---
+        # Gravity
         self.current_piece['pos'][0] += 1
         if check_collision(self.board, self.current_piece):
             self.current_piece['pos'][0] -= 1
@@ -149,31 +147,30 @@ class TetrisEnv(gym.Env):
             if check_collision(self.board, self.current_piece):
                 self.game_over = True
 
-        obs = self._get_obs()
-        return obs, reward, self.game_over, False, {}
+        obs = self._get_obs()            # shape (H, W, 3)
+        return obs[None, ...], reward, self.game_over, False, {}
 
     def _get_obs(self):
-        """Render board+current piece into an H×W×3 float image in [0,1]."""
         img = np.zeros((self.board_h, self.board_w, 3), dtype=np.uint8)
-        # draw frozen cells (white)
+        # frozen cells = white
         for r in range(self.board_h):
             for c in range(self.board_w):
                 if self.board[r, c]:
-                    img[r, c] = [255, 255, 255]
-        # draw current piece (red)
-        pos = self.current_piece['pos']
-        shape = self.current_piece['shape']
+                    img[r, c] = [255, 0, 0]
+                else:
+                    img[r, c] = [0, 255, 0]
+        # moving piece = red
+        pos, shape = self.current_piece['pos'], self.current_piece['shape']
         h, w = shape.shape
         for i in range(h):
             for j in range(w):
                 if shape[i, j]:
-                    r, c = pos[0] + i, pos[1] + j
-                    if 0 <= r < self.board_h and 0 <= c < self.board_w:
-                        img[r, c] = [0, 0, 255]
-        return (img.astype(np.float32) / 255.0)
+                    rr, cc = pos[0] + i, pos[1] + j
+                    if 0 <= rr < self.board_h and 0 <= cc < self.board_w:
+                        img[rr, cc] = [0, 0, 255]
+        return img.astype(np.float32) / 255.0
 
-    def render(self, mode='human'):
-        # scaled human view
+    def render(self):
         human = np.zeros((self.board_h*self.block_size,
                           self.board_w*self.block_size, 3), dtype=np.uint8)
         for r in range(self.board_h):
@@ -185,18 +182,17 @@ class TetrisEnv(gym.Env):
                         ((c+1)*self.block_size, (r+1)*self.block_size),
                         (255, 255, 255), -1
                     )
-        # draw moving piece
         pos, shape = self.current_piece['pos'], self.current_piece['shape']
         h, w = shape.shape
         for i in range(h):
             for j in range(w):
                 if shape[i, j]:
-                    r, c = pos[0]+i, pos[1]+j
-                    if 0 <= r < self.board_h and 0 <= c < self.board_w:
+                    rr, cc = pos[0]+i, pos[1]+j
+                    if 0 <= rr < self.board_h and 0 <= cc < self.board_w:
                         cv2.rectangle(
                             human,
-                            (c*self.block_size, r*self.block_size),
-                            ((c+1)*self.block_size, (r+1)*self.block_size),
+                            (cc*self.block_size, rr*self.block_size),
+                            ((cc+1)*self.block_size, (rr+1)*self.block_size),
                             (0, 0, 255), -1
                         )
         # grid
@@ -207,41 +203,42 @@ class TetrisEnv(gym.Env):
             cv2.line(human, (j*self.block_size, 0),
                      (j*self.block_size, self.board_h*self.block_size), (0,0,0), 1)
 
-        inp = (self._get_obs()*255).astype(np.uint8)
-        if mode=='human':
-            cv2.imshow("Tetris - Human", human)
-            cv2.imshow("Tetris - Input", inp)
-            cv2.waitKey(1)
+        inp = (self._get_obs() * 255).astype(np.uint8)
+        
+        cv2.imshow("Tetris - Human", human)
+        cv2.imshow("Tetris - Input", inp)
+        cv2.waitKey(1)
         return {"human": human, "input": inp}
 
     def close(self):
         cv2.destroyAllWindows()
 
-
-
-
-if __name__ == '__main__':
-    # 1) build wrapped env with integer actions (not one‑hot)
+def get_env():
+    # 1) build wrapped env with integer actions
     base_env = TetrisEnv()
     env = GymWrapper(
         base_env,
-        device=torch.device("cpu"),
-        categorical_action_encoding=True,  # now “action” is a 0‑d int
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        categorical_action_encoding=True,
         from_pixels=False,
     )
+    return env
+
+if __name__ == '__main__':
+    env = get_env()
 
     # 2) reset → TensorDict
     td = env.reset()
-    obs = td["observation"]              # Tensor(shape=[20,10,3])
-    done = td["done"].item()             # False
+    print(f"reset: {td=}")
+    obs = td["observation"]              # Tensor(shape=[1,20,10,3])
+    done = td["done"].item()
     total_lines = 0
 
-    print(f"{obs.shape=}")               # (20,10,3)
+    print(f"{obs.shape=}")               # (1,20,10,3)
     print("Controls: A=left, D=right, W=rotate, S=soft-drop, Q=quit")
 
     # 3) loop: render + read key + step via tensordict
     while not done:
-        # wrapper delegates .render() to your native env
         env.render()
 
         key = cv2.waitKey(0) & 0xFF
@@ -252,16 +249,16 @@ if __name__ == '__main__':
             continue
         action_int = mapping[key]
 
-        # build a 0‑d TensorDict for step
         in_td = TensorDict(
-            {
-                "action": torch.tensor(action_int, dtype=torch.int64, device=env.device)
-            },
+            {"action": torch.tensor(action_int, dtype=torch.int64, device=env.device)},
             batch_size=[]
         )
-        # step returns a TensorDict with a "next" field
+        print(f"action: {in_td=}")
+
         out_td = env.step(in_td)
+        print(f"step: {out_td=}")
         next_td = out_td["next"]
+        print(f"next: {next_td=}")
 
         obs    = next_td["observation"]
         reward = next_td["reward"].item()
