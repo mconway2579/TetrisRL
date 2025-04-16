@@ -1,26 +1,38 @@
 import torch
-from matplotlib import pyplot as plt
-from TetrisEnv import TetrisEnv
-from torchrl.envs import GymWrapper  # import the GymWrapper from TorchRL
-
+from torchrl.envs import GymWrapper
+from TetrisEnv import TetrisEnv  # wherever you put the class
 
 
 if __name__ == "__main__":
-    # Create the environment
-    gym_env = TetrisEnv()
-    env = GymWrapper(gym_env)
-    # Reset the environment to get the initial observation (converted to a tensor)
-    observation = env.reset()
-    print(f"{observation=}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.backends.mps.device if torch.backends.mps.is_available() else device
+    print(f"Using device: {device}")
+    # instantiate your gym‐style env
+    base_env = TetrisEnv()
 
-    # Take a random action from the action space
-    step_outcome = env.rand_step()
+    # wrap it in TorchRL
+    # by default this will:
+    #  • convert obs/rewards/dones into a tensordict
+    #  • convert your discrete actions into a torch.Tensor
+    #  • live on CPU
+    env = GymWrapper(
+        base_env,
+        device=device,            # where tensors should live
+        categorical_action_encoding=False,     # discrete → OneHot / Categorical spec
+        from_pixels=False,                     # we already return raw pixel obs
+    )
 
-    # Unpack the outcome
-    next_observation, reward, done, info = step_outcome
+    # reset returns a TensorDict
+    td = env.reset()
+    print(td)
+    # TensorDict(
+    #    fields={
+    #      action: …,
+    #      next: TensorDict(fields={ … observation, reward, done … }),
+    #    },
+    #    batch_size=torch.Size([]), device=cpu
+    # )
 
-    print("Initial Observation:", observation)
-    print("Next Observation:", next_observation)
-    print("Reward:", reward)
-    print("Done:", done)
-    print("Info:", info)
+    # sample a random action and step
+    td = env.rand_step()  # does both: samples action, steps, returns next tensordict
+    print(td)
