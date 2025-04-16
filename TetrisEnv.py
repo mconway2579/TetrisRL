@@ -32,7 +32,9 @@ class TetrisEnv(gym.Env):
         super(TetrisEnv, self).__init__()
         self.env = gym.make('ALE/Tetris-v5', render_mode='rgb_array', repeat_action_probability=0, frameskip = 8)
         self.action_space = self.env.action_space
-        self.observation_space = self.env.observation_space
+        #self.observation_space = self.env.observation_space
+        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(22, 10, 3), dtype=np.uint8)
+        #print(self.observation_space)
         self.obs_t1 = None
         self.obs_t2 = None
         self.obs_t3 = None
@@ -45,7 +47,7 @@ class TetrisEnv(gym.Env):
         self.obs_t1 = process_default_observation(self, obs_t1)
         self.obs_t2 = process_default_observation(self, obs_t2)
         self.obs_t3 = process_default_observation(self, obs_t3)
-        return self.get_observation()
+        return self.get_observation(), info
 
     def get_observation(self):
         stacked_image = np.stack([self.obs_t1, self.obs_t2, self.obs_t3], axis=-1)
@@ -59,7 +61,8 @@ class TetrisEnv(gym.Env):
         self.obs_t3 = new_obs
 
         self.last_observation = self.get_observation()
-        return self.last_observation, reward, terminated, truncated, info 
+        done = terminated or truncated
+        return self.last_observation, reward, terminated, truncated,info
 
     def render(self, mode='human'):
         return self.env.render(mode)
@@ -74,8 +77,9 @@ if __name__ == "__main__":
     done = False
     action = env.action_space.sample()  # Replace with your policy or agent's action
     while not done:
-        obs, reward, terminated, truncated, info = env.step(action)
-        print(f"Action: {action}, {type(action)}")
+        step_out = env.step(action)
+        obs = step_out["observation"]
+        #print(f"Action: {action}, {type(action)}")
         print(f"Observation: {obs.shape}, {type(obs)}")
         cv2.imshow("Tetris", obs)
         k = cv2.waitKey(0) & 0xFF
@@ -93,6 +97,6 @@ if __name__ == "__main__":
             exit()
         else:
             action = 0
-        done = terminated or truncated
+        done = step_out["done"]
     cv2.waitKey(0)
     env.close()
