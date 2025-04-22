@@ -146,6 +146,8 @@ class TetrisEnv(gym.Env):
             self.current_piece = new_piece()
             if check_collision(self.board, self.current_piece):
                 self.game_over = True
+        if self.board[0].any():    # any cell in top row is occupied
+            self.game_over = True
 
         obs = self._get_obs()            # shape (H, W, 3)
         return obs[None, ...], reward, self.game_over, False, {}
@@ -221,6 +223,7 @@ def get_env():
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         categorical_action_encoding=True,
         from_pixels=False,
+        auto_reset=False
     )
     return env
 
@@ -238,7 +241,7 @@ if __name__ == '__main__':
     print("Controls: A=left, D=right, W=rotate, S=soft-drop, Q=quit")
 
     # 3) loop: render + read key + step via tensordict
-    while not done:
+    while True:
         env.render()
 
         key = cv2.waitKey(0) & 0xFF
@@ -264,6 +267,9 @@ if __name__ == '__main__':
         reward = next_td["reward"].item()
         done   = next_td["done"].item()
         total_lines += reward
+        print(f"{done = }")
+        if done:
+            env.reset()
 
     print("Game over! Lines cleared:", total_lines)
     env.close()
