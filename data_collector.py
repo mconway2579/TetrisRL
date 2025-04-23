@@ -1,4 +1,3 @@
-# test_data_collector.py
 import torch
 from tensordict import TensorDict
 from torchrl.envs import GymWrapper
@@ -51,6 +50,7 @@ if __name__ == "__main__":
     env = get_env()
     # Create a random policy
     policy = RandomPolicy(env.action_spec)
+    eval_rollout = env.rollout(1000, policy)
     n_workers = 8
     fpb = 256
     collector = get_collecter(get_env, policy)
@@ -77,8 +77,9 @@ if __name__ == "__main__":
             cv2.waitKey(1)
         
             #input("press enter to see state pair")
-        #for k, v in batch_td.items():
-        #    print(f"{k}: {v.shape}")
+        for k, v in batch_td.items():
+            print(f"{k}: {v.shape}")
+        print("\n\n")
         if count > 1:
             break
     print("Done collecting data")
