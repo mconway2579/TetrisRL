@@ -101,7 +101,7 @@ class TetrisEnv(gym.Env):
         # batch_size=1, H×W×3 float32 image in [0,1]
         self.observation_space = Box(
             low=0.0, high=1.0,
-            shape=(1, self.board_h, self.board_w, 3),
+            shape=(3, self.board_h, self.board_w),
             dtype=np.float32
         )
         self.reset()
@@ -112,7 +112,7 @@ class TetrisEnv(gym.Env):
         self.game_over = False
         self.total_lines = 0
         obs = self._get_obs()            # shape (H, W, 3)
-        return obs[None, ...], {}        # shape (1, H, W, 3)
+        return obs[...], {}        # shape (1, H, W, 3)
 
     def step(self, action):
         reward = 0
@@ -150,7 +150,7 @@ class TetrisEnv(gym.Env):
             self.game_over = True
 
         obs = self._get_obs()            # shape (H, W, 3)
-        return obs[None, ...], reward, self.game_over, False, {}
+        return obs[...], reward, self.game_over, False, {}
 
     def _get_obs(self):
         img = np.zeros((self.board_h, self.board_w, 3), dtype=np.uint8)
@@ -170,6 +170,7 @@ class TetrisEnv(gym.Env):
                     rr, cc = pos[0] + i, pos[1] + j
                     if 0 <= rr < self.board_h and 0 <= cc < self.board_w:
                         img[rr, cc] = [0, 0, 255]
+        img = np.transpose(img, (2, 0, 1))
         return img.astype(np.float32) / 255.0
 
     def render(self):
@@ -206,7 +207,7 @@ class TetrisEnv(gym.Env):
                      (j*self.block_size, self.board_h*self.block_size), (0,0,0), 1)
 
         inp = (self._get_obs() * 255).astype(np.uint8)
-        
+        inp = np.transpose(inp, (1, 2, 0))
         cv2.imshow("Tetris - Human", human)
         cv2.imshow("Tetris - Input", inp)
         cv2.waitKey(1)

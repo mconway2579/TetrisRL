@@ -12,6 +12,38 @@ from utils import select_device
 
     
 import cv2
+
+N_WORKERS = 8
+FRAMES_PER_WORKER = 256
+FRAMES_PER_COLLECTER = FRAMES_PER_WORKER*N_WORKERS
+REPLAY_BUFFER_BATCH_SIZE = 32
+BATCHES_TO_STORE = 1024
+device = select_device()
+def get_collecter(env_func, policy):
+    collector = MultiSyncDataCollector(
+        create_env_fn=[env_func] * N_WORKERS,
+        policy=policy,
+        frames_per_batch=FRAMES_PER_COLLECTER,
+        device = device,
+        reset_at_each_iter=True,    # resets _between_ batches
+        reset_when_done=True        # torn down _within_ a batch on done
+    )
+    return collector
+def get_replay_buffer():
+    max_episodes = BATCHES_TO_STORE
+    elements_per_batch = FRAMES_PER_COLLECTER
+    storage_capacity = max_episodes * elements_per_batch
+    storage = LazyTensorStorage(
+        max_size=storage_capacity,
+        device=device,
+        ndim=2  # because each “element” is really a [n_workers, T]-shaped chunk
+    )
+    replay_buffer = ReplayBuffer(
+        storage=storage,
+        sampler=SamplerWithoutReplacement(),  # you can swap in PrioritizedSampler, etc.
+        batch_size=REPLAY_BUFFER_BATCH_SIZE
+    )
+    return replay_buffer
 if __name__ == "__main__":
     device = select_device()
     print(f"Using device: {device}")
@@ -21,34 +53,8 @@ if __name__ == "__main__":
     policy = RandomPolicy(env.action_spec)
     n_workers = 8
     fpb = 256
-    collector = MultiSyncDataCollector(
-        create_env_fn=[get_env] * n_workers,
-        policy=policy,
-        frames_per_batch=fpb * n_workers,
-        device = device,
-        reset_at_each_iter=True,    # resets _between_ batches
-        reset_when_done=True        # torn down _within_ a batch on done
-    )
-
-    T = (fpb * n_workers) // n_workers  # == fpb
-    N_batches = 1024
-    max_episodes = N_batches
-    elements_per_batch = n_workers * T
-    storage_capacity = max_episodes * elements_per_batch
-
-
-    storage = LazyTensorStorage(
-        max_size=storage_capacity,
-        device=device,
-        ndim=2  # because each “element” is really a [n_workers, T]-shaped chunk
-    )
-    
-    replay_buffer = ReplayBuffer(
-        storage=storage,
-        sampler=SamplerWithoutReplacement(),  # you can swap in PrioritizedSampler, etc.
-        batch_size=4*T,                    # when sampling, get 4 trajectories of length T
-    )
-
+    collector = get_collecter(get_env, policy)
+    replay_buffer = get_replay_buffer()
 
     for count, batch_td in enumerate(collector):
         #print(f"Batch {i}: {batch_td.shape}")
@@ -58,15 +64,15 @@ if __name__ == "__main__":
         for j in range(batch_size):
             for i in range(worker_count):
                 initial_state = batch_td["observation"][i][j]
-                next_state = batch_td["next", "observation"][i][j]  # [n_workers, T, 1, 20, 10, 3]
+                next_state = batch_td["next", "observation"][i][j]
                 # done flags
-                d = batch_td["done"][i][j]                    # [n_workers, T, 1]
-                terminated = batch_td["terminated"][i][j]     # [n_workers, T, 1]
-                truncated  = batch_td["truncated"][i][j]      # [n_workers, T, 1]
+                d = batch_td["done"][i][j]                    
+                terminated = batch_td["terminated"][i][j]     
+                truncated  = batch_td["truncated"][i][j]      # 
                 #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
                 initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
                 #next_img_np = next_state.squeeze(0).cpu().numpy()
-                cv2.imshow(f"State {i}", initial_img_np)
+                cv2.imshow(f"State {i}", initial_img_np.transpose(1,2,0))
                 #cv2.imshow(f"Next State {i}", next_img_np)
             cv2.waitKey(1)
         
@@ -82,10 +88,10 @@ if __name__ == "__main__":
         for i in range(batch_size):
             initial_state = train_td["observation"][i]
             next_state = train_td["next", "observation"][i]
-            cv2.imshow(f"ReplayBuffer State", initial_state.squeeze(0).cpu().numpy())
+            cv2.imshow(f"ReplayBuffer State", initial_state.squeeze(0).cpu().numpy().transpose(1,2,0))
             cv2.waitKey(1)
             input("press enter to see next state")
-            cv2.imshow(f"ReplayBuffer State", next_state.squeeze(0).cpu().numpy())
+            cv2.imshow(f"ReplayBuffer State", next_state.squeeze(0).cpu().numpy().transpose(1,2,0))
             cv2.waitKey(1)
             input("press enter to see next sample")
 
