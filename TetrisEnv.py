@@ -6,6 +6,7 @@ from gym.spaces import Discrete, Box
 import torch
 from tensordict import TensorDict
 from torchrl.envs import GymWrapper
+from torchrl.envs.utils import check_env_specs
 
 # -----------------------------
 # Global Settings and Constants
@@ -230,6 +231,8 @@ def get_env():
 
 if __name__ == '__main__':
     env = get_env()
+    check_env_specs(env)
+    rollout = env.rollout(3)
 
     # 2) reset → TensorDict
     td = env.reset()

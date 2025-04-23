@@ -15,12 +15,21 @@ from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration
 if __name__ == "__main__":
     #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
     device = select_device()
+    
+    
+    lr = 3e-4
+    max_grad_norm = 1.0
+    
     TOTAL_FRAMES = 10_000
     EPOCHS_PER_BATCH=10
+
+    
+    clip_epsilon = (
+        0.2  # clip value for PPO loss: see the equation in the intro for more context.
+    )
     gamma = 0.99
     lmbda = 0.95
-    max_grad_norm = 1.0
-
+    entropy_eps = 1e-4
 
     ppo_policy, value_module = get_PPO_policy()
     collector = get_collecter(get_env, ppo_policy)

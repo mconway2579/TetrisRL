@@ -3,6 +3,9 @@ import torch.nn as nn
 from TetrisEnv import get_env
 from utils import select_device
 from tensordict.nn import TensorDictModule
+from torchrl.modules import ProbabilisticActor
+from torch.distributions import Categorical
+
 import cv2
 device = select_device()
 #print(f"Using device: {device}")
@@ -32,9 +35,7 @@ class PPOPolicy(nn.Module):
             obs = obs.unsqueeze(0)
         f      = self.conv(obs)
         logits = self.actor(f)
-        dist   = torch.distributions.Categorical(logits=logits)
-        a      = dist.sample()
-        return a, logits
+        return logits
     
 class ValueEstimator(nn.Module):
     def __init__(self):
@@ -64,20 +65,31 @@ def get_PPO_policy():
     ppo_p    = TensorDictModule(
         module   = base_ppo,
         in_keys  = ["observation"],             # what the env produces
-        out_keys = ["action", "logits"]  # what you want stored
+        out_keys = ["logits"]  # what you want stored
     ).to(device)
     value_module = TensorDictModule(
         module   = base_value,
         in_keys  = ["observation"],             # what the env produces
         out_keys = ["value"]  # what you want stored
     ).to(device)
-    
-    return ppo_p, value_module
+    actor = ProbabilisticActor(
+        module=ppo_p,
+        in_keys=["logits"],
+        out_keys=["action"],
+        distribution_class = Categorical
+    ).to(device)
+    #print(f"{actor=}")
+    #input("Press enter to continue")
+    return actor, value_module
 
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
     ppo_policy, value_module = get_PPO_policy()
-    print(f"{ppo_policy=}")    
+    #print(f"{ppo_policy=}")
+    env = get_env()
+    print("Running policy:", ppo_policy(env.reset()))
+    print("Running value:", value_module(env.reset()))
+    #input("Press enter to continue")
     collector = get_collecter(get_env, ppo_policy)
     replay_buffer = get_replay_buffer()
 
