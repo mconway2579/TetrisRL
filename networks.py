@@ -94,22 +94,21 @@ if __name__ == "__main__":
     replay_buffer = get_replay_buffer()
 
     for count, batch_td in enumerate(collector):
-        worker_count = batch_td.batch_size[0]
-        batch_size = batch_td.batch_size[1]
+        print(f"Batch {count}: {batch_td.shape}")
+        batch_size = batch_td.shape[0]
         replay_buffer.extend(batch_td)
         for j in range(batch_size):
-            for i in range(worker_count):
-                initial_state = batch_td["observation"][i][j]
-                next_state = batch_td["next", "observation"][i][j]
-                # done flags
-                d = batch_td["done"][i][j]                    
-                terminated = batch_td["terminated"][i][j]     
-                truncated  = batch_td["truncated"][i][j]      # 
-                #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
-                initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
-                #next_img_np = next_state.squeeze(0).cpu().numpy()
-                cv2.imshow(f"State {i}", initial_img_np.transpose(1,2,0))
-                #cv2.imshow(f"Next State {i}", next_img_np)
+            initial_state = batch_td["observation"][j]
+            next_state = batch_td["next", "observation"][j]
+            # done flags
+            d = batch_td["done"][j]                    
+            terminated = batch_td["terminated"][j]     
+            truncated  = batch_td["truncated"][j]      # 
+            #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
+            initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
+            #next_img_np = next_state.squeeze(0).cpu().numpy()
+            cv2.imshow(f"State", initial_img_np.transpose(1,2,0))
+            #cv2.imshow(f"Next State {i}", next_img_np)
             cv2.waitKey(1)
         
             #input("press enter to see state pair")

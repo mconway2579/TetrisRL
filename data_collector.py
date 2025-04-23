@@ -12,9 +12,7 @@ from utils import select_device
     
 import cv2
 
-N_WORKERS = 8
-FRAMES_PER_WORKER = 256
-FRAMES_PER_COLLECTER = FRAMES_PER_WORKER*N_WORKERS
+FRAMES_PER_COLLECTER = 2048
 REPLAY_BUFFER_BATCH_SIZE = 32
 BATCHES_TO_STORE = 1024
 device = select_device()
@@ -59,8 +57,6 @@ if __name__ == "__main__":
     # Create a random policy
     policy = RandomPolicy(env.action_spec)
     eval_rollout = env.rollout(1000, policy)
-    n_workers = 8
-    fpb = 256
     collector = get_collecter(get_env, policy)
     replay_buffer = get_replay_buffer()
 
