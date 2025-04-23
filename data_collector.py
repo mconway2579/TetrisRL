@@ -2,7 +2,7 @@ import torch
 from tensordict import TensorDict
 from torchrl.envs import GymWrapper
 from torchrl.envs.utils import RandomPolicy
-from torchrl.collectors import MultiSyncDataCollector
+from torchrl.collectors import MultiSyncDataCollector, SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
@@ -19,8 +19,16 @@ REPLAY_BUFFER_BATCH_SIZE = 32
 BATCHES_TO_STORE = 1024
 device = select_device()
 def get_collecter(env_func, policy):
-    collector = MultiSyncDataCollector(
+    """collector = MultiSyncDataCollector(
         create_env_fn=[env_func] * N_WORKERS,
+        policy=policy,
+        frames_per_batch=FRAMES_PER_COLLECTER,
+        device = device,
+        reset_at_each_iter=True,    # resets _between_ batches
+        reset_when_done=True        # torn down _within_ a batch on done
+    )"""
+    collector = SyncDataCollector(
+        create_env_fn=env_func,
         policy=policy,
         frames_per_batch=FRAMES_PER_COLLECTER,
         device = device,
@@ -35,7 +43,7 @@ def get_replay_buffer():
     storage = LazyTensorStorage(
         max_size=storage_capacity,
         device=device,
-        ndim=2  # because each “element” is really a [n_workers, T]-shaped chunk
+        ndim=1
     )
     replay_buffer = ReplayBuffer(
         storage=storage,
@@ -57,23 +65,21 @@ if __name__ == "__main__":
     replay_buffer = get_replay_buffer()
 
     for count, batch_td in enumerate(collector):
-        #print(f"Batch {i}: {batch_td.shape}")
-        worker_count = batch_td.batch_size[0]
-        batch_size = batch_td.batch_size[1]
+        print(f"Batch {count}: {batch_td.shape}")
+        batch_size = batch_td.shape[0]
         replay_buffer.extend(batch_td)
         for j in range(batch_size):
-            for i in range(worker_count):
-                initial_state = batch_td["observation"][i][j]
-                next_state = batch_td["next", "observation"][i][j]
-                # done flags
-                d = batch_td["done"][i][j]                    
-                terminated = batch_td["terminated"][i][j]     
-                truncated  = batch_td["truncated"][i][j]      # 
-                #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
-                initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
-                #next_img_np = next_state.squeeze(0).cpu().numpy()
-                cv2.imshow(f"State {i}", initial_img_np.transpose(1,2,0))
-                #cv2.imshow(f"Next State {i}", next_img_np)
+            initial_state = batch_td["observation"][j]
+            next_state = batch_td["next", "observation"][j]
+            # done flags
+            d = batch_td["done"][j]                    
+            terminated = batch_td["terminated"][j]     
+            truncated  = batch_td["truncated"][j]      # 
+            #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
+            initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
+            #next_img_np = next_state.squeeze(0).cpu().numpy()
+            cv2.imshow(f"State", initial_img_np.transpose(1,2,0))
+            #cv2.imshow(f"Next State {i}", next_img_np)
             cv2.waitKey(1)
         
             #input("press enter to see state pair")
