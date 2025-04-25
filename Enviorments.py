@@ -99,8 +99,15 @@ def clear_lines(board):
     return board, cleared
 
 class TetrisEnv(gym.Env):
-    def __init__(self):
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
+    def __init__(self, render_mode: str | None = None):
         super().__init__()
+
+        if render_mode is None:
+            render_mode = "human"
+        assert render_mode in self.metadata["render_modes"]
+
+        self.render_mode = render_mode
         self.board_w = BOARD_WIDTH
         self.board_h = BOARD_HEIGHT
         self.block_size = BLOCK_SIZE
@@ -236,6 +243,7 @@ class TetrisEnv(gym.Env):
         #cv2.imshow("Tetris - Human", human)
         #cv2.imshow("Tetris - Input", inp)
         #cv2.waitKey(1)
+        
         return inp
 
     def close(self):
@@ -243,18 +251,22 @@ class TetrisEnv(gym.Env):
 
 def get_tetris_env():
     # 1) build wrapped env with integer actions
-    base_env = TetrisEnv()
+    base_env = TetrisEnv(render_mode = 'rgb_array')
     wrapped_env = GymWrapper(
         base_env,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         categorical_action_encoding=True,
-        from_pixels=False,
+        from_pixels=True,
+        pixels_only=False,
         auto_reset=False
     )
     transformed_env = TransformedEnv(
         wrapped_env,
-        StepCounter(step_count_key="step_count"),   # <- adds the key every step :contentReference[oaicite:0]{index=0}
-        DoubleToFloat(),                            # typical preprocessing
+        Compose(
+            StepCounter(step_count_key="step_count"),
+            DoubleToFloat(),
+            ToTensorImage()   # H×W×C uint8 → C×H×W float32
+        )
     ).to(device)
     return transformed_env
 
@@ -271,45 +283,35 @@ from torchrl.envs import (
     Resize,
     RenameTransform
 )
-def get_pong_env():
-    base_env = GymEnv("ALE/Pong-v5", device=device, render_mode="rgb_array")
-    env = TransformedEnv(
-        base_env,
-        Compose(
-            ToTensorImage(),   # uint8 H×W×C → float32 C×H×W
-            Resize((84, 84)),  # downsample to 84×84
-            StepCounter(),
-            RenameTransform(
-                in_keys=["pixels"],                # original key
-                out_keys=["observation"],          # new key
-                create_copy=False                  # move rather than copy
-            ),
-            
-        )
-    )
-    return env
 
 
 def get_mc_env():
-    base_env = GymEnv("MountainCarContinuous-v0", device=device, render_mode="rgb_array")
+    # 1. Ask GymEnv itself to capture frames -------------------------------
+    base_env = GymEnv(
+        "MountainCarContinuous-v0",
+        device=device,
+        render_mode="rgb_array",
+        from_pixels=True,      # ← capture env.render(...) automatically
+        pixels_only=False     #    keep the 2-D state observation too
+    )
+
+    # 2. Transform stack ----------------------------------------------------
     env = TransformedEnv(
         base_env,
         Compose(
+            ToTensorImage(in_keys=["pixels"]),   # H×W×C uint8 → C×H×W float32 in [0,1]
             StepCounter()
         )
     )
     return env
 
 if __name__ == '__main__':
-    print(list(GymEnv.available_envs))
+    #print(list(GymEnv.available_envs))
     env_name = "MC"
     env = None
     action_mapping = None
     if env_name == "Tetris":
         env = get_tetris_env()
-        action_mapping = {ord('a'): 0, ord('d'): 1, ord('w'): 2, ord('s'): 3}
-    elif env_name == "Pong":
-        env = get_pong_env()
         action_mapping = {ord('a'): 0, ord('d'): 1, ord('w'): 2, ord('s'): 3}
     elif env_name == "MC":
         env = get_mc_env()
@@ -327,13 +329,12 @@ if __name__ == '__main__':
     done = td["done"].item()
     total_lines = 0
 
-    print(f"{obs.shape=}")               # (1,20,10,3)
-    print("Controls: A=left, D=right, W=rotate, S=soft-drop, Q=quit")
+    print(f"{obs.shape=}")
 
     # 3) loop: render + read key + step via tensordict
     while True:
-        pixels = env.render()
-        print(f"{pixels.shape=}")
+        pixels = td["pixels"].permute(1,2,0).cpu().numpy()
+        print(f"pixels: {pixels.shape=}")
         cv2.imshow("Window", pixels)
         cv2.waitKey(1)
 
@@ -343,22 +344,21 @@ if __name__ == '__main__':
         if key not in action_mapping:
             continue
         action_rep = action_mapping[key]
+        #action_rep = env.action_space.sample()
+        print(f"{env.action_space=}")
+        print(f"{action_rep=}")
         td["action"] = action_rep
 
         print(f"action: {td=}")
 
-        out_td = env.step(td)
-        print(f"step: {out_td=}")
-        next_td = out_td["next"]
-        print(f"next: {next_td=}")
+        td = env.step(td)["next"]
+        print(f"step: {td=}")
 
-        obs    = next_td["observation"]
-        reward = next_td["reward"].item()
-        done   = next_td["done"].item()
-        total_lines += reward
+        done = td["done"].item()
         print(f"{done = }")
         if done:
             env.reset()
+        
 
     print("Game over! Lines cleared:", total_lines)
     env.close()
