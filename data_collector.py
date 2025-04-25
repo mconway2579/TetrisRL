@@ -6,15 +6,15 @@ from torchrl.collectors import MultiSyncDataCollector, SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from TetrisEnv import get_env
+from Enviorments import get_tetris_env, get_mc_env
 from utils import select_device
 
-    
 import cv2
 
-FRAMES_PER_COLLECTER = 2048
+FRAMES_PER_COLLECTER = 256
 REPLAY_BUFFER_BATCH_SIZE = 32
 BATCHES_TO_STORE = 1024
+TOTAL_FRAMES = 1_000_000
 device = select_device()
 def get_collecter(env_func, policy):
     """collector = MultiSyncDataCollector(
@@ -29,6 +29,7 @@ def get_collecter(env_func, policy):
         create_env_fn=env_func,
         policy=policy,
         frames_per_batch=FRAMES_PER_COLLECTER,
+        total_frames=TOTAL_FRAMES,
         device = device,
         reset_at_each_iter=True,    # resets _between_ batches
         reset_when_done=True        # torn down _within_ a batch on done
@@ -40,7 +41,7 @@ def get_replay_buffer():
     storage_capacity = max_episodes * elements_per_batch
     storage = LazyTensorStorage(
         max_size=storage_capacity,
-        device=device,
+        device="cpu",
         ndim=1
     )
     replay_buffer = ReplayBuffer(
@@ -49,32 +50,39 @@ def get_replay_buffer():
         batch_size=REPLAY_BUFFER_BATCH_SIZE
     )
     return replay_buffer
+
+
+
 if __name__ == "__main__":
+    #print(list(GymEnv.available_envs))
+
     device = select_device()
     print(f"Using device: {device}")
-
-    env = get_env()
+    get_env_func = get_tetris_env
+    #get_env_func = get_mc_env
+    env = get_env_func()
     # Create a random policy
     policy = RandomPolicy(env.action_spec)
     eval_rollout = env.rollout(1000, policy)
-    collector = get_collecter(get_env, policy)
+    #collector = get_collecter(get_env, policy)
+    collector = get_collecter(get_env_func, policy)
+
     replay_buffer = get_replay_buffer()
 
     for count, batch_td in enumerate(collector):
         print(f"Batch {count}: {batch_td.shape}")
+        print(f"Batch: {batch_td}")
         batch_size = batch_td.shape[0]
         replay_buffer.extend(batch_td)
         for j in range(batch_size):
-            initial_state = batch_td["observation"][j]
-            next_state = batch_td["next", "observation"][j]
             # done flags
             d = batch_td["done"][j]                    
             terminated = batch_td["terminated"][j]     
             truncated  = batch_td["truncated"][j]      # 
             #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
-            initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
+            img_np = batch_td["pixels"][j].squeeze(0).permute(1,2,0).cpu().numpy()
             #next_img_np = next_state.squeeze(0).cpu().numpy()
-            cv2.imshow(f"State", initial_img_np.transpose(1,2,0))
+            cv2.imshow(f"State", img_np)
             #cv2.imshow(f"Next State {i}", next_img_np)
             cv2.waitKey(1)
         
@@ -85,19 +93,25 @@ if __name__ == "__main__":
         if count > 1:
             break
     print("Done collecting data")
+    count = 0
     while True:
         train_td = replay_buffer.sample()
         batch_size = train_td.size()[0]
         for i in range(batch_size):
-            initial_state = train_td["observation"][i]
-            next_state = train_td["next", "observation"][i]
-            cv2.imshow(f"ReplayBuffer State", initial_state.squeeze(0).cpu().numpy().transpose(1,2,0))
+            img = train_td["pixels"][i].permute(1,2,0).cpu().numpy()
+            next_img = train_td["next", "pixels"][i].permute(1,2,0).cpu().numpy()
+            cv2.imshow(f"ReplayBuffer State", img)
             cv2.waitKey(1)
             input("press enter to see next state")
-            cv2.imshow(f"ReplayBuffer State", next_state.squeeze(0).cpu().numpy().transpose(1,2,0))
+            cv2.imshow(f"ReplayBuffer State", next_img)
             cv2.waitKey(1)
             input("press enter to see next sample")
 
             print(f"Train batch: {train_td}")
-        #print(f"")
-    exit(0)
+        count += 1
+        if count >= 1:
+            break
+    
+    
+
+

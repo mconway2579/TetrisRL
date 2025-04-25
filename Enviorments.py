@@ -300,6 +300,7 @@ def get_mc_env():
         base_env,
         Compose(
             ToTensorImage(in_keys=["pixels"]),   # H×W×C uint8 → C×H×W float32 in [0,1]
+            Resize((84, 84)),  # downsample to 84×84
             StepCounter()
         )
     )
