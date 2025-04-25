@@ -14,7 +14,7 @@ import os
 import numpy as np
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
-def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector = 256, total_frames = 1_000_000, batches_to_store = 1024, mini_batch_size = 32, training_iter_per_batch = 10, gamma=0.99, lmbda=0.95, entropy_eps=1e-2, critic_coef=1):
+def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector = 256, total_frames = 1_000_000, batches_to_store = 1024, mini_batch_size = 32, training_iter_per_batch = 10, gamma=0.99, lmbda=0.95, entropy_eps=1e-2, critic_coef=1, clip_grad=1.0):
     save_dir = f"results/ppo_{env_name}_{lr=}_{total_frames=}_{mini_batch_size=}_{training_iter_per_batch=}_{entropy_eps=}/"
     os.makedirs(save_dir, exist_ok=True)
 
@@ -90,6 +90,10 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector = 256, total
                 optim.zero_grad()
                 # Optimization: backward, grad clipping and optimization step
                 loss_value.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    list(ppo_policy.parameters()) + list(value_module.parameters()),
+                    max_norm=clip_grad,
+                )
                 # this is not strictly mandatory but it's good practice to keep
                 # your gradient norm bounded
                 optim.step()
