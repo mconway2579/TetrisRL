@@ -1,96 +1,180 @@
 import torch
 import torch.nn as nn
-from TetrisEnv import get_env
+from Enviorments import get_tetris_env, get_mc_env
 from utils import select_device
 from tensordict.nn import TensorDictModule
-from torchrl.modules import ProbabilisticActor
+from torchrl.modules import ProbabilisticActor, TanhNormal
 from torch.distributions import Categorical
+from tensordict.nn.distributions import NormalParamExtractor
 
+import gym
+import gymnasium 
 import cv2
 device = select_device()
-#print(f"Using device: {device}")
-# constants
-INPUT_SHAPE = (3, 20, 10)  # (C, H, W)
-N_ACTIONS   = 4
 
-# unpack and compute conv output size
-C, H, W = INPUT_SHAPE
+BoxTypes   = (gym.spaces.Box,   gymnasium.spaces.Box)
+DiscTypes  = (gym.spaces.Discrete, gymnasium.spaces.Discrete)
+def flat_size(space):
+    return int(reduce(mul, space.shape, 1))
 
 class PPOPolicy(nn.Module):
-    def __init__(self):
+    def __init__(self, get_env_func):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(3, 32, 3, stride=2), nn.ReLU(),
-            nn.Conv2d(32, 64, 3, stride=2), nn.ReLU(),
-            nn.Flatten(start_dim=1),
-        )
-        dummy_input = torch.zeros(1, *INPUT_SHAPE)
-        dummy_output = self.conv(dummy_input)
+        env = get_env_func()
+        
+        obs_space = env.observation_space["state"]
+        #print(f"{obs_space.shape=}")
+        first_layer = None
+        if isinstance(obs_space, BoxTypes) and len(obs_space.shape) == 3:
+            first_layer = nn.Sequential(
+                nn.Conv2d(3, 32, 3, stride=2), nn.ReLU(),
+                nn.Conv2d(32, 64, 3, stride=2), nn.ReLU(),
+                nn.Flatten(start_dim=1),
+            )
+        elif len(obs_space.shape) == 1:
+            first_layer = nn.Sequential(
+                nn.Linear(obs_space.shape[0], 256), nn.ReLU()
+            )
+        else:
+            raise ValueError(f"Unsupported observation space shape: {obs_space}")
+        final_layer = None
+        if isinstance(env.action_space, BoxTypes):
+            final_layer =  nn.Sequential(
+                nn.Linear(256, env.action_space.shape[0] *2), NormalParamExtractor()
+            )
+        elif isinstance(env.action_space, DiscTypes):
+            final_layer = nn.Linear(256, env.action_space.n)
+        else:
+            raise ValueError(f"Unsupported action space type: {type(env.action_space)}")
+
+        observation = env.reset()["observation"]
+        dummy_input = torch.zeros(1, *observation.shape)
+        dummy_output = first_layer(dummy_input)
         flattened_shape = dummy_output.shape[1]
 
-        self.actor  = nn.Linear(flattened_shape, N_ACTIONS)
+        self.actor = nn.Sequential(
+            first_layer,
+            nn.Linear(flattened_shape, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            final_layer
+        )
+        with torch.no_grad():  # avoid tracking in autograd
+            for layer in self.actor:
+                if isinstance(layer, nn.Linear):
+                    nn.init.kaiming_uniform_(layer.weight)
+                    nn.init.zeros_(layer.bias)
 
     def forward(self, obs: torch.Tensor):
         if len(obs.shape) == 3:
             obs = obs.unsqueeze(0)
-        f      = self.conv(obs)
-        logits = self.actor(f)
+        logits = self.actor(obs)
         return logits
     
 class ValueEstimator(nn.Module):
-    def __init__(self):
+    def __init__(self, get_env_func):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(3, 32, 3, stride=2), nn.ReLU(),
-            nn.Conv2d(32, 64, 3, stride=2), nn.ReLU(),
-            nn.Flatten(start_dim=1),
-        )
-        dummy_input = torch.zeros(1, *INPUT_SHAPE)
-        dummy_output = self.conv(dummy_input)
+        env = get_env_func()
+        obs_space = env.observation_space["state"]
+        #print(f"{obs_space.shape=}")
+        first_layer = None
+        if isinstance(obs_space, BoxTypes) and len(obs_space.shape) == 3:
+            first_layer = nn.Sequential(
+                nn.Conv2d(3, 32, 3, stride=2), nn.ReLU(),
+                nn.Conv2d(32, 64, 3, stride=2), nn.ReLU(),
+                nn.Flatten(start_dim=1),
+            )
+        elif len(obs_space.shape) == 1:
+            first_layer = nn.Sequential(
+                nn.Linear(obs_space.shape[0], 256), nn.ReLU()
+            )
+        else:
+            raise ValueError(f"Unsupported observation space shape: {obs_space}")
+        observation = env.reset()["observation"]
+        #print(f"observation shape: {observation.shape}")
+        dummy_input = torch.zeros(1, *observation.shape)
+        dummy_output = first_layer(dummy_input)
         flattened_shape = dummy_output.shape[1]
         #print(f"dummy_input shape: {dummy_input.shape}")
         #print(f"dummy_output shape: {dummy_output.shape}")
-        self.critic  = nn.Linear(flattened_shape, 1)
+        self.critic  = nn.Sequential(
+            first_layer,
+            nn.Linear(flattened_shape, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 1)
+        )
+        with torch.no_grad():           # avoid tracking in autograd
+            for layer in self.critic:
+                if isinstance(layer, nn.Linear):
+                    nn.init.kaiming_uniform_(layer.weight)
+                    nn.init.zeros_(layer.bias)
+           
 
     def forward(self, obs: torch.Tensor):
         if len(obs.shape) == 3:
             obs = obs.unsqueeze(0)
-        f      = self.conv(obs)
-        value  = self.critic(f).squeeze(-1)
+        value  = self.critic(obs)
         return value
 
-def get_PPO_policy():
-    base_ppo = PPOPolicy()                      # keeps forward(obs) if you like
-    base_value = ValueEstimator()
-    ppo_p    = TensorDictModule(
-        module   = base_ppo,
-        in_keys  = ["observation"],             # what the env produces
-        out_keys = ["logits"]  # what you want stored
-    ).to(device)
+def get_PPO_policy(get_env_func):
+    base_ppo = PPOPolicy(get_env_func)                      # keeps forward(obs) if you like
+    print(f"{base_ppo=}")
+    base_value = ValueEstimator(get_env_func)
+    
     value_module = TensorDictModule(
         module   = base_value,
         in_keys  = ["observation"],             # what the env produces
-        out_keys = ["value"]  # what you want stored
+        out_keys = ["state_value"]  # what you want stored
     ).to(device)
-    actor = ProbabilisticActor(
-        module=ppo_p,
-        in_keys=["logits"],
-        out_keys=["action"],
-        distribution_class = Categorical
-    ).to(device)
+    env = get_env_func()
+    action_space = env.action_space
+    actor = None
+    if isinstance(action_space, DiscTypes):
+        ppo_p    = TensorDictModule(
+            module   = base_ppo,
+            in_keys  = ["observation"],             # what the env produces
+            out_keys = ["logits"]  # what you want stored
+        ).to(device)
+        actor = ProbabilisticActor(
+            module=ppo_p,
+            in_keys=["logits"],
+            out_keys=["action"],
+            distribution_class = Categorical,
+            return_log_prob    = True   # <-- writes the log‐prob to the tensordict
+        ).to(device)
+    elif isinstance(action_space, BoxTypes):
+        ppo_p    = TensorDictModule(
+            module   = base_ppo,
+            in_keys  = ["observation"],             # what the env produces
+            out_keys = ["loc", "scale"]  # what you want stored
+        ).to(device)
+        actor = ProbabilisticActor(
+            module=ppo_p,
+            in_keys=["loc", "scale"],        # <-- Continuous → needs mean/std
+            out_keys=["action"],
+            distribution_class=TanhNormal,   # TanhNormal for bounded continuous
+            return_log_prob=True
+        ).to(device)
+    else:
+        raise ValueError(f"Unsupported action space type: {type(action_space)}")
     #print(f"{actor=}")
     #input("Press enter to continue")
     return actor, value_module
 
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
-    ppo_policy, value_module = get_PPO_policy()
+    #get_env_func = get_tetris_env
+    get_env_func = get_mc_env
+
+    ppo_policy, value_module = get_PPO_policy(get_env_func)
     #print(f"{ppo_policy=}")
-    env = get_env()
+    env = get_env_func()
     print("Running policy:", ppo_policy(env.reset()))
     print("Running value:", value_module(env.reset()))
     #input("Press enter to continue")
-    collector = get_collecter(get_env, ppo_policy)
+    #collector = get_collecter(get_tetris_env, ppo_policy)
+    collector = get_collecter(get_env_func, ppo_policy)
     replay_buffer = get_replay_buffer()
 
     for count, batch_td in enumerate(collector):
@@ -98,16 +182,15 @@ if __name__ == "__main__":
         batch_size = batch_td.shape[0]
         replay_buffer.extend(batch_td)
         for j in range(batch_size):
-            initial_state = batch_td["observation"][j]
-            next_state = batch_td["next", "observation"][j]
+            initial_img = batch_td["pixels"][j].squeeze(0).permute(1,2,0).cpu().numpy()
+            next_img = batch_td["next", "pixels"][j].squeeze(0).permute(1,2,0).cpu().numpy()
             # done flags
             d = batch_td["done"][j]                    
             terminated = batch_td["terminated"][j]     
             truncated  = batch_td["truncated"][j]      # 
             #print(f"Initial state {j} {i}: {initial_state.shape} {d=}, {terminated=}, {truncated=}")
-            initial_img_np = initial_state.squeeze(0).cpu().numpy()  # now shape [20, 10, 3]
             #next_img_np = next_state.squeeze(0).cpu().numpy()
-            cv2.imshow(f"State", initial_img_np.transpose(1,2,0))
+            cv2.imshow(f"State", initial_img)
             #cv2.imshow(f"Next State {i}", next_img_np)
             cv2.waitKey(1)
         
@@ -119,19 +202,19 @@ if __name__ == "__main__":
            break
     print("Done collecting data")
     while True:
-        train_td = replay_buffer.sample()
+        train_td = replay_buffer.sample().to(device)
         batch_size = train_td.size()[0]
         out_p = ppo_policy(train_td)
         out_v = value_module(train_td)
         print(f"out_v: {out_v}")
         print(f"out_p: {out_p}")
         for i in range(batch_size):
-            initial_state = train_td["observation"][i]
-            next_state = train_td["next", "observation"][i]
-            cv2.imshow(f"ReplayBuffer State", initial_state.squeeze(0).cpu().numpy().transpose(1,2,0))
+            initial_img = train_td["pixels"][i].squeeze(0).cpu().numpy().transpose(1,2,0)
+            next_img = train_td["next", "pixels"][i].squeeze(0).cpu().numpy().transpose(1,2,0)
+            cv2.imshow(f"ReplayBuffer State", initial_img)
             cv2.waitKey(1)
             input("press enter to see next state")
-            cv2.imshow(f"ReplayBuffer State", next_state.squeeze(0).cpu().numpy().transpose(1,2,0))
+            cv2.imshow(f"ReplayBuffer State", next_img)
             cv2.waitKey(1)
             input("press enter to see next sample")
 

@@ -14,7 +14,7 @@ import cv2
 FRAMES_PER_COLLECTER = 256
 REPLAY_BUFFER_BATCH_SIZE = 32
 BATCHES_TO_STORE = 1024
-TOTAL_FRAMES = 1_000_000
+TOTAL_FRAMES = 1_000
 device = select_device()
 def get_collecter(env_func, policy):
     """collector = MultiSyncDataCollector(
