@@ -2,7 +2,7 @@ from data_collector import get_collecter, get_replay_buffer
 from networks import get_PPO_policy
 from utils import select_device
 from torchrl.objectives import PPOLoss
-from TetrisEnv import get_env
+from Enviorments import get_tetris_env, get_mc_env
 import torch
 import matplotlib.pyplot as plt
 from collections import defaultdict
@@ -10,17 +10,17 @@ from tqdm import tqdm
 from torchrl.objectives.value import GAE
 from data_collector import FRAMES_PER_COLLECTER as frames_per_batch
 from data_collector import REPLAY_BUFFER_BATCH_SIZE as sub_batch_size
+from data_collector import TOTAL_FRAMES
 from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration_type
+import cv2
+#https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
-if __name__ == "__main__":
-    #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
+def train(get_env_func):
+    
     device = select_device()
-    
-    
-    lr = 3e-4
+    lr = 1e-6
     max_grad_norm = 1.0
     
-    TOTAL_FRAMES = 10_000
     EPOCHS_PER_BATCH=10
 
     
@@ -31,27 +31,31 @@ if __name__ == "__main__":
     lmbda = 0.95
     entropy_eps = 1e-4
 
-    ppo_policy, value_module = get_PPO_policy()
-    collector = get_collecter(get_env, ppo_policy)
+    ppo_policy, value_module = get_PPO_policy(get_env_func)
+    ppo_policy.to(device)
+    value_module.to(device)
+    collector = get_collecter(get_env_func, ppo_policy)
     replay_buffer = get_replay_buffer()
 
 
     loss_module = PPOLoss(
         actor_network=ppo_policy,
         critic_network=value_module,
-        # these keys match by default but we set this for completeness
+        entropy_bonus=bool(entropy_eps),
+        entropy_coef=entropy_eps,
         critic_coef=1.0,
         loss_critic_type="smooth_l1",
     ).to(device)
 
-    optim, = torch.optim.Adam(ppo_policy.parameters(), lr=3e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optim, TOTAL_FRAMES // frames_per_batch, 0.0
-    )
-    batch_td = next(iter(collector))
-    print(f"Batch: {batch_td.shape}")
-    batch_td = batch_td.reshape(-1)
-    print(f"Batch: {batch_td.shape}")
+
+    optim = torch.optim.Adam(list(ppo_policy.parameters()) + list(value_module.parameters()), lr=lr)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optim, TOTAL_FRAMES // frames_per_batch, 0.0
+    # )
+    #batch_td = next(iter(collector))
+    #print(f"Batch: {batch_td.shape}")
+    #batch_td = batch_td.reshape(-1)
+    #print(f"Batch: {batch_td.shape}")
 
 
 
@@ -74,10 +78,12 @@ if __name__ == "__main__":
             # We re-compute it at each epoch as its value depends on the value
             # network which is updated in the inner loop.
             advantage_module(tensordict_data)
-            data_view = tensordict_data.reshape(-1)
-            replay_buffer.extend(data_view.cpu())
+            replay_buffer.extend(tensordict_data)
+
             for _ in range(frames_per_batch // sub_batch_size):
                 subdata = replay_buffer.sample(sub_batch_size)
+                #print(f"Subdata: {subdata}")
+                #input("Press enter to continue")
                 loss_vals = loss_module(subdata.to(device))
                 loss_value = (
                     loss_vals["loss_objective"]
@@ -111,7 +117,7 @@ if __name__ == "__main__":
             # it will then execute this policy at each step.
             with set_exploration_type(ExplorationType.DETERMINISTIC), torch.no_grad():
                 # execute a rollout with the trained policy
-                env = get_env()
+                env = get_env_func()
                 eval_rollout = env.rollout(1000, ppo_policy)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
                 logs["eval reward (sum)"].append(
@@ -128,7 +134,7 @@ if __name__ == "__main__":
 
         # We're also using a learning rate scheduler. Like the gradient clipping,
         # this is a nice-to-have but nothing necessary for PPO to work.
-        scheduler.step()
+        # scheduler.step()
 
     plt.figure(figsize=(10, 10))
     plt.subplot(2, 2, 1)
@@ -143,5 +149,30 @@ if __name__ == "__main__":
     plt.subplot(2, 2, 4)
     plt.plot(logs["eval step_count"])
     plt.title("Max step count (test)")
-    plt.show()
+    plt.show(block = True)
 
+
+    env = get_env_func()
+    td = env.reset()
+    acc = 0
+    while True:
+        try:
+            rgb_array = env.render()
+            cv2.imshow("Game", rgb_array)
+            cv2.waitKey(1)
+            td = ppo_policy(td)
+            td = env.step(td)
+            if td["next", "done"]:
+                td = env.reset()
+                acc +=1
+            if acc > 1:
+                break
+        except KeyboardInterrupt:
+            break
+    return
+        
+
+
+if __name__ == "__main__":
+    train(get_mc_env)
+    train(get_tetris_env)
