@@ -27,7 +27,8 @@ def get_collecter(env_func, policy, frames_per_collector, total_frames):
         frames_per_batch=frames_per_collector,
         total_frames=total_frames,
         device = device,
-        reset_at_each_iter=True,    # resets _between_ batches
+        split_trajs=False,
+        #reset_at_each_iter=True,    # resets _between_ batches
         reset_when_done=True        # torn down _within_ a batch on done
     )
     return collector

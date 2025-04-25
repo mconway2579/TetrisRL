@@ -138,6 +138,7 @@ def get_PPO_policy(get_env_func):
         ).to(device)
         actor = ProbabilisticActor(
             module=ppo_p,
+            spec = env.action_spec,
             in_keys=["logits"],
             out_keys=["action"],
             distribution_class = Categorical,
@@ -151,9 +152,14 @@ def get_PPO_policy(get_env_func):
         ).to(device)
         actor = ProbabilisticActor(
             module=ppo_p,
+            spec = env.action_spec,
             in_keys=["loc", "scale"],        # <-- Continuous → needs mean/std
             out_keys=["action"],
             distribution_class=TanhNormal,   # TanhNormal for bounded continuous
+            distribution_kwargs={
+                "low": env.action_spec_unbatched.space.low,
+                "high": env.action_spec_unbatched.space.high,
+            },
             return_log_prob=True
         ).to(device)
     else:
