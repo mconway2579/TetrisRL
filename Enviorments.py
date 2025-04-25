@@ -285,7 +285,7 @@ from torchrl.envs import (
 )
 
 
-def get_mc_env():
+def get_mcc_env():
     # 1. Ask GymEnv itself to capture frames -------------------------------
     base_env = GymEnv(
         "MountainCarContinuous-v0",
@@ -293,6 +293,28 @@ def get_mc_env():
         render_mode="rgb_array",
         from_pixels=True,      # ← capture env.render(...) automatically
         pixels_only=False     #    keep the 2-D state observation too
+    )
+
+    # 2. Transform stack ----------------------------------------------------
+    env = TransformedEnv(
+        base_env,
+        Compose(
+            ToTensorImage(in_keys=["pixels"]),   # H×W×C uint8 → C×H×W float32 in [0,1]
+            Resize((84, 84)),  # downsample to 84×84
+            StepCounter()
+        )
+    )
+    return env
+
+def get_mcd_env():
+    # 1. Ask GymEnv itself to capture frames -------------------------------
+    base_env = GymEnv(
+        "MountainCar-v0",
+        device=device,
+        render_mode="rgb_array",
+        from_pixels=True,      # ← capture env.render(...) automatically
+        pixels_only=False,     #    keep the 2-D state observation too
+        categorical_action_encoding=True,
     )
 
     # 2. Transform stack ----------------------------------------------------

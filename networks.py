@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from Enviorments import get_tetris_env, get_mc_env
+from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
 from utils import select_device
 from tensordict.nn import TensorDictModule
 from torchrl.modules import ProbabilisticActor, TanhNormal
@@ -55,8 +55,8 @@ class PPOPolicy(nn.Module):
         self.actor = nn.Sequential(
             first_layer,
             nn.Linear(flattened_shape, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
+            #nn.Linear(256, 256), nn.ReLU(),
+            #nn.Linear(256, 256), nn.ReLU(),
             final_layer
         )
         with torch.no_grad():  # avoid tracking in autograd
@@ -100,8 +100,8 @@ class ValueEstimator(nn.Module):
         self.critic  = nn.Sequential(
             first_layer,
             nn.Linear(flattened_shape, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
+            #nn.Linear(256, 256), nn.ReLU(),
+            #nn.Linear(256, 256), nn.ReLU(),
             nn.Linear(256, 1)
         )
         with torch.no_grad():           # avoid tracking in autograd
@@ -171,7 +171,9 @@ def get_PPO_policy(get_env_func):
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
     #get_env_func = get_tetris_env
-    get_env_func = get_mc_env
+    #get_env_func = get_mc_env
+    get_env_func = get_mcd_env
+
 
     ppo_policy, value_module = get_PPO_policy(get_env_func)
     #print(f"{ppo_policy=}")
@@ -180,12 +182,13 @@ if __name__ == "__main__":
     print("Running value:", value_module(env.reset()))
     #input("Press enter to continue")
     #collector = get_collecter(get_tetris_env, ppo_policy)
-    collector = get_collecter(get_env_func, ppo_policy)
-    replay_buffer = get_replay_buffer()
+    collector = get_collecter(get_env_func, ppo_policy, 256, 100_000)
+    replay_buffer = get_replay_buffer(1024, 256, 32)
 
     for count, batch_td in enumerate(collector):
         print(f"Batch {count}: {batch_td.shape}")
         batch_size = batch_td.shape[0]
+        print(f"Batch: {batch_td}")
         replay_buffer.extend(batch_td)
         for j in range(batch_size):
             initial_img = batch_td["pixels"][j].squeeze(0).permute(1,2,0).cpu().numpy()

@@ -6,7 +6,9 @@ from torchrl.collectors import MultiSyncDataCollector, SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from Enviorments import get_tetris_env, get_mc_env
+from torchrl.envs.utils import ExplorationType
+
+from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
 from utils import select_device
 
 import cv2
@@ -28,7 +30,9 @@ def get_collecter(env_func, policy, frames_per_collector, total_frames):
         total_frames=total_frames,
         device = device,
         split_trajs=False,
-        #reset_at_each_iter=True,    # resets _between_ batches
+        exploration_type=ExplorationType.RANDOM,   # <── force stochastic rollouts
+        init_random_frames=frames_per_collector*10,
+        reset_at_each_iter=True,    # resets _between_ batches
         reset_when_done=True        # torn down _within_ a batch on done
     )
     return collector
@@ -55,8 +59,9 @@ if __name__ == "__main__":
 
     device = select_device()
     print(f"Using device: {device}")
-    get_env_func = get_tetris_env
+    #get_env_func = get_tetris_env
     #get_env_func = get_mc_env
+    get_env_func = get_mcd_env
     env = get_env_func()
     # Create a random policy
     policy = RandomPolicy(env.action_spec)

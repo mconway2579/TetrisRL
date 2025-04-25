@@ -2,7 +2,7 @@ from data_collector import get_collecter, get_replay_buffer
 from networks import get_PPO_policy
 from utils import select_device
 from torchrl.objectives import PPOLoss, ClipPPOLoss
-from Enviorments import get_tetris_env, get_mc_env
+from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
 import torch
 import matplotlib.pyplot as plt
 from collections import defaultdict
@@ -14,12 +14,21 @@ import os
 import numpy as np
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
-def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total_frames = 1_000_000, batches_to_store = 1024, mini_batch_size = 32, training_iter_per_batch = 10, gamma=0.99, lmbda=0.95, entropy_eps=1e-2, critic_coef=1, clip_grad=1.0):
-    n_batches = math.ceil(total_frames / frames_per_collector)
 
-    n_batches = math.ceil(n_batches / 10) * 10
+def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total_frames = 1_000_000, batches_to_store = 1024, mini_batch_size = 32, training_iter_per_batch = 10, gamma=0.99, lmbda=0.95, entropy_eps=1, critic_coef=1, clip_grad=1.0):
+    n_batches = np.ceil(total_frames / frames_per_collector)
 
-    total_frames = n_batches * frames_per_collector
+    n_batches = np.ceil(n_batches / 10) * 10
+
+    total_frames = (n_batches * frames_per_collector) +1
+
+    ENTROPY_START = 0.03          # 3× your current 1 e-2
+    ENTROPY_END   = 0.002
+    ENTROPY_HORIZON = total_frames   # linear decay across the run
+
+    def current_entropy_coef(frame):
+        pct = min(frame / ENTROPY_HORIZON, 1.0)
+        return torch.tensor(ENTROPY_START * (1 - pct) + ENTROPY_END)
 
     save_dir = f"results/ppo_{env_name}_{lr=}_{total_frames=}_{mini_batch_size=}_{training_iter_per_batch=}_{entropy_eps=}/"
     os.makedirs(save_dir, exist_ok=True)
@@ -29,6 +38,11 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
     ppo_policy.to(device)
     value_module.to(device)
     collector = get_collecter(get_env_func, ppo_policy, frames_per_collector, total_frames)
+    # print(f"Collector: {collector}")
+    # print(f"{dir(collector)=}")
+
+    # print(f"Collector: {collector.exploration_type}")
+    # input()
     replay_buffer = get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size)
 
     clip_epsilon = 0.2
@@ -50,7 +64,6 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
         critic_coef=critic_coef,
         loss_critic_type="smooth_l1",
     )
-
    
 
     optim = torch.optim.Adam(loss_module.parameters(), lr=lr)
@@ -94,6 +107,9 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
                 mini_batch = replay_buffer.sample(mini_batch_size)
                 #print(f"mini_batch: {mini_batch}")
                 #input("Press enter to continue")
+                loss_module.entropy_coef = current_entropy_coef(
+                    collector_batch * frames_per_collector
+                )
                 loss_vals = loss_module(mini_batch.to(device))
                 #print(f"loss_vals: {loss_vals}")
                 loss_value = (
@@ -118,7 +134,9 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
                 optim.zero_grad()
 
         logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-        logs["step_count"].append(tensordict_data["step_count"].float().mean().item())
+        max_step_count = tensordict_data["step_count"].max().item()
+        #print(f"MaxStepCount: {max_step_count}")
+        logs["step_count"].append(max_step_count)
         logs["lr"].append(optim.param_groups[0]["lr"])
 
         logs["loss objective"].append(objective_loss_acc)
@@ -176,8 +194,8 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
 
     plt.figure(figsize=(10, 10))
     plt.plot(logs["step_count"])
-    plt.title("Avg step count (training)")
-    plt.savefig(f"{fig_dir}AvgStepCount.png")
+    plt.title("Max step count (training)")
+    plt.savefig(f"{fig_dir}MaxStepCount.png")
     plt.close()             # closes the current figure
 
 
@@ -253,5 +271,7 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
 
 if __name__ == "__main__":
     os.makedirs("results", exist_ok=True)
-    train_ppo(get_mc_env, "MC", total_frames = 50_000)
+    train_ppo(get_mcc_env, "MCC", total_frames = 50_000, frames_per_collector = 128)
+    #train_ppo(get_mcd_env, "MCd", total_frames = 50_000)
+
     #train_ppo(get_tetris_env, "Tetris")
