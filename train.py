@@ -8,34 +8,23 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm
 from torchrl.objectives.value import GAE
-from data_collector import FRAMES_PER_COLLECTER as frames_per_batch
-from data_collector import REPLAY_BUFFER_BATCH_SIZE as sub_batch_size
-from data_collector import TOTAL_FRAMES
 from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration_type
 import cv2
+import os
+import numpy as np
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
-def train(get_env_func):
-    
-    device = select_device()
-    lr = 1e-6
-    max_grad_norm = 1.0
-    
-    EPOCHS_PER_BATCH=10
+def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector = 256, total_frames = 1_000_000, batches_to_store = 1024, mini_batch_size = 32, training_iter_per_batch = 10, gamma=0.99, lmbda=0.95, entropy_eps=1e-2, critic_coef=1):
+    save_dir = f"results/ppo_{env_name}_{lr=}_{total_frames=}_{mini_batch_size=}_{training_iter_per_batch=}_{entropy_eps=}/"
+    os.makedirs(save_dir, exist_ok=True)
 
-    
-    clip_epsilon = (
-        0.2  # clip value for PPO loss: see the equation in the intro for more context.
-    )
-    gamma = 0.99
-    lmbda = 0.95
-    entropy_eps = 1e-4
+    device = select_device()
 
     ppo_policy, value_module = get_PPO_policy(get_env_func)
     ppo_policy.to(device)
     value_module.to(device)
-    collector = get_collecter(get_env_func, ppo_policy)
-    replay_buffer = get_replay_buffer()
+    collector = get_collecter(get_env_func, ppo_policy, frames_per_collector, total_frames)
+    replay_buffer = get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size)
 
 
     loss_module = PPOLoss(
@@ -43,14 +32,14 @@ def train(get_env_func):
         critic_network=value_module,
         entropy_bonus=bool(entropy_eps),
         entropy_coef=entropy_eps,
-        critic_coef=1.0,
+        critic_coef=critic_coef,
         loss_critic_type="smooth_l1",
     ).to(device)
 
 
     optim = torch.optim.Adam(list(ppo_policy.parameters()) + list(value_module.parameters()), lr=lr)
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    #     optim, TOTAL_FRAMES // frames_per_batch, 0.0
+    #     optim, TOTAL_FRAMES // frames_per_collector, 0.0
     # )
     #batch_td = next(iter(collector))
     #print(f"Batch: {batch_td.shape}")
@@ -59,55 +48,64 @@ def train(get_env_func):
 
 
 
-
-
     advantage_module = GAE(
         gamma=gamma, lmbda=lmbda, value_network=value_module, average_gae=True
     )
 
     logs = defaultdict(list)
-    pbar = tqdm(total=TOTAL_FRAMES)
-    eval_str = ""
-
+    out_file_txt = f"{save_dir}training.txt"
+    with open(out_file_txt, "w") as f:
+        f.write(save_dir + "\n")
+    best_model = None
+    best_model_score = -np.inf
     # We iterate over the collector until it reaches the total number of frames it was
     # designed to collect:
     for i, tensordict_data in enumerate(collector):
         # we now have a batch of data to work with. Let's learn something from it.
-        for _ in range(EPOCHS_PER_BATCH):
+        objective_loss_acc = 0.0
+        critic_loss_acc = 0.0
+        entropy_loss_acc = 0.0
+        for _ in range(training_iter_per_batch):
             # We'll need an "advantage" signal to make PPO work.
             # We re-compute it at each epoch as its value depends on the value
             # network which is updated in the inner loop.
             advantage_module(tensordict_data)
             replay_buffer.extend(tensordict_data)
 
-            for _ in range(frames_per_batch // sub_batch_size):
-                subdata = replay_buffer.sample(sub_batch_size)
+            for _ in range(frames_per_collector // mini_batch_size):
+                subdata = replay_buffer.sample(mini_batch_size)
                 #print(f"Subdata: {subdata}")
                 #input("Press enter to continue")
                 loss_vals = loss_module(subdata.to(device))
+                #print(f"loss_vals: {loss_vals}")
                 loss_value = (
                     loss_vals["loss_objective"]
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
+                objective_loss_acc += loss_vals["loss_objective"].item()
+                critic_loss_acc += loss_vals["loss_critic"].item()
+                entropy_loss_acc += loss_vals["loss_entropy"].item()
 
+                optim.zero_grad()
                 # Optimization: backward, grad clipping and optimization step
                 loss_value.backward()
                 # this is not strictly mandatory but it's good practice to keep
                 # your gradient norm bounded
-                torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
                 optim.step()
-                optim.zero_grad()
-
         logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-        pbar.update(tensordict_data.numel())
-        cum_reward_str = (
-            f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
-        )
-        logs["step_count"].append(tensordict_data["step_count"].max().item())
-        stepcount_str = f"step count (max): {logs['step_count'][-1]}"
+        logs["step_count"].append(tensordict_data["step_count"].float().mean().item())
         logs["lr"].append(optim.param_groups[0]["lr"])
-        lr_str = f"lr policy: {logs['lr'][-1]: 4.4f}"
+
+        logs["loss objective"].append(objective_loss_acc)
+        logs["loss critic"].append(critic_loss_acc)
+        logs["loss entropy"].append(entropy_loss_acc)
+        
+        #print(f"{tensordict_data=}")
+        out_str = f"Batch {i}/{total_frames//frames_per_collector}: reward:{logs['reward'][-1]}, step_count:{logs['step_count'][-1]}, lr:{logs['lr'][-1]}"
+        #print(out_str, end='\n', flush=True)
+        #with open(out_file_txt, "a") as f:
+        #    f.write(out_str + "\n")
         if i % 10 == 0:
             # We evaluate the policy once every 10 batches of data.
             # Evaluation is rather simple: execute the policy without exploration
@@ -120,59 +118,116 @@ def train(get_env_func):
                 env = get_env_func()
                 eval_rollout = env.rollout(1000, ppo_policy)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
+                total_reward =  eval_rollout["next", "reward"].sum().item()
                 logs["eval reward (sum)"].append(
-                    eval_rollout["next", "reward"].sum().item()
+                   total_reward
                 )
-                logs["eval step_count"].append(eval_rollout["step_count"].max().item())
-                eval_str = (
-                    f"eval cumulative reward: {logs['eval reward (sum)'][-1]: 4.4f} "
-                    f"(init: {logs['eval reward (sum)'][0]: 4.4f}), "
-                    f"eval step-count: {logs['eval step_count'][-1]}"
-                )
+                if total_reward > best_model_score:
+                    best_model_score = total_reward
+                    best_model = ppo_policy.state_dict()
+                    torch.save(best_model, f"{save_dir}best_model.pth")
+                    print(f"Best model saved with score {best_model_score}")
+                logs["eval step_count"].append(eval_rollout["step_count"].float().mean().item())
                 del eval_rollout
-        pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
+            eval_str = f"Eval {i}/{total_frames//frames_per_collector}: avg eval reward:{logs['eval reward'][-1]}, sum eval reward :{logs['eval reward (sum)'][-1]}, AvgStepCount:{logs['eval step_count'][-1]}"
+            print(eval_str, end='\n', flush=True)
+            with open(out_file_txt, "a") as f:
+                f.write(eval_str + "\n")
+            
 
         # We're also using a learning rate scheduler. Like the gradient clipping,
         # this is a nice-to-have but nothing necessary for PPO to work.
         # scheduler.step()
 
+
+    fig_dir = f"{save_dir}figures/"
+    os.makedirs(fig_dir, exist_ok=True)
+
     plt.figure(figsize=(10, 10))
-    plt.subplot(2, 2, 1)
     plt.plot(logs["reward"])
     plt.title("training rewards (average)")
-    plt.subplot(2, 2, 2)
+    plt.savefig(f"{fig_dir}training_rewards.png")
+    plt.close()             # closes the current figure
+
+
+    plt.figure(figsize=(10, 10))
     plt.plot(logs["step_count"])
-    plt.title("Max step count (training)")
-    plt.subplot(2, 2, 3)
+    plt.title("Avg step count (training)")
+    plt.savefig(f"{fig_dir}AvgStepCount.png")
+    plt.close()             # closes the current figure
+
+
+
+    plt.figure(figsize=(10, 10))
     plt.plot(logs["eval reward (sum)"])
-    plt.title("Return (test)")
-    plt.subplot(2, 2, 4)
+    plt.title("Eval Reward")
+    plt.savefig(f"{fig_dir}AvgStepCount.png")
+    plt.close()             # closes the current figure
+
+
+    plt.figure(figsize=(10, 10))
     plt.plot(logs["eval step_count"])
-    plt.title("Max step count (test)")
-    plt.show(block = True)
+    plt.title("Avg step count (test)")
+    plt.savefig(f"{fig_dir}EvalStepCount.png")
+    plt.close()             # closes the current figure
 
 
-    env = get_env_func()
+
+    plt.figure(figsize=(10, 10))
+    plt.plot(logs["loss objective"])
+    plt.title("Loss Objective")
+    plt.savefig(f"{fig_dir}LossObjective.png")
+    plt.close()             # closes the current figure
+
+    plt.figure(figsize=(10, 10))
+    plt.plot(logs["loss critic"])
+    plt.title("Loss Critic")
+    plt.savefig(f"{fig_dir}LossCritic.png")
+    plt.close()             # closes the current figure
+
+    plt.figure(figsize=(10, 10))
+    plt.plot(logs["loss entropy"])
+    plt.title("Loss Entropy")
+    plt.savefig(f"{fig_dir}LossEntropy.png")
+    plt.close()             # closes the current figure
+    
+
+
+    model_video_dir = f"{save_dir}model_video/"
+    os.makedirs(model_video_dir, exist_ok=True)
+
+    ppo_policy.load_state_dict(torch.load(f"{save_dir}best_model.pth", map_location=device))
+    ppo_policy.eval()
     td = env.reset()
-    acc = 0
-    while True:
-        try:
-            rgb_array = env.render()
-            cv2.imshow("Game", rgb_array)
+    for i in range(5):
+        env = get_env_func()
+        done = False
+        video = []
+        video_out = f"{model_video_dir}{i}.mp4"
+        while not done:
+            img = td["pixels"].squeeze(0).permute(1,2,0).cpu().numpy()
+            video.append(img)
+            cv2.imshow(f"Game {get_env_func}", img)
             cv2.waitKey(1)
             td = ppo_policy(td)
-            td = env.step(td)
-            if td["next", "done"]:
-                td = env.reset()
-                acc +=1
-            if acc > 1:
-                break
-        except KeyboardInterrupt:
-            break
+            td = env.step(td)['next']
+            done = td["done"]
+        fourcc  = cv2.VideoWriter_fourcc(*"mp4v")   # <─ THIS LINE
+        w,h,c = video[0].shape
+        writer = cv2.VideoWriter(video_out, fourcc, 30, (w, h), isColor=True)
+        if not writer.isOpened():
+            raise RuntimeError(f"Could not open VideoWriter for {video_out}")
+        for frame in video:
+            frame = np.clip(frame, 0, 1) * 255 if frame.dtype.kind == "f" else frame
+            frame = frame.astype(np.uint8, copy=False)
+            writer.write(frame)
+        writer.release()
+        env.reset()
     return
         
 
 
 if __name__ == "__main__":
-    train(get_mc_env)
-    train(get_tetris_env)
+    os.makedirs("results", exist_ok=True)
+    train_ppo(get_mc_env, "MC")
+    train_ppo(get_tetris_env, "Tetris")

@@ -11,12 +11,8 @@ from utils import select_device
 
 import cv2
 
-FRAMES_PER_COLLECTER = 256
-REPLAY_BUFFER_BATCH_SIZE = 32
-BATCHES_TO_STORE = 1024
-TOTAL_FRAMES = 1_000
 device = select_device()
-def get_collecter(env_func, policy):
+def get_collecter(env_func, policy, frames_per_collector, total_frames):
     """collector = MultiSyncDataCollector(
         create_env_fn=[env_func] * N_WORKERS,
         policy=policy,
@@ -28,16 +24,16 @@ def get_collecter(env_func, policy):
     collector = SyncDataCollector(
         create_env_fn=env_func,
         policy=policy,
-        frames_per_batch=FRAMES_PER_COLLECTER,
-        total_frames=TOTAL_FRAMES,
+        frames_per_batch=frames_per_collector,
+        total_frames=total_frames,
         device = device,
         reset_at_each_iter=True,    # resets _between_ batches
         reset_when_done=True        # torn down _within_ a batch on done
     )
     return collector
-def get_replay_buffer():
-    max_episodes = BATCHES_TO_STORE
-    elements_per_batch = FRAMES_PER_COLLECTER
+def get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size):
+    max_episodes = batches_to_store
+    elements_per_batch = frames_per_collector
     storage_capacity = max_episodes * elements_per_batch
     storage = LazyTensorStorage(
         max_size=storage_capacity,
@@ -47,7 +43,7 @@ def get_replay_buffer():
     replay_buffer = ReplayBuffer(
         storage=storage,
         sampler=SamplerWithoutReplacement(),  # you can swap in PrioritizedSampler, etc.
-        batch_size=REPLAY_BUFFER_BATCH_SIZE
+        batch_size=mini_batch_size
     )
     return replay_buffer
 
@@ -65,9 +61,14 @@ if __name__ == "__main__":
     policy = RandomPolicy(env.action_spec)
     eval_rollout = env.rollout(1000, policy)
     #collector = get_collecter(get_env, policy)
-    collector = get_collecter(get_env_func, policy)
+    fpc = 256
+    
+    total_frames = 100_000
+    collector = get_collecter(get_env_func, policy, fpc, total_frames)
 
-    replay_buffer = get_replay_buffer()
+    mini_batch_size = 32
+    total_batches = 1024
+    replay_buffer = get_replay_buffer(total_batches, fpc, mini_batch_size)
 
     for count, batch_td in enumerate(collector):
         print(f"Batch {count}: {batch_td.shape}")
