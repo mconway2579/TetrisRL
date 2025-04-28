@@ -16,8 +16,8 @@ device = select_device()
 
 BoxTypes   = (gym.spaces.Box,   gymnasium.spaces.Box)
 DiscTypes  = (gym.spaces.Discrete, gymnasium.spaces.Discrete)
-def flat_size(space):
-    return int(reduce(mul, space.shape, 1))
+
+hidden_dim = 1024
 
 class ActionNetwork(nn.Module):
     def __init__(self, get_env_func):
@@ -35,17 +35,17 @@ class ActionNetwork(nn.Module):
             )
         elif len(obs_space.shape) == 1:
             first_layer = nn.Sequential(
-                nn.Linear(obs_space.shape[0], 256), nn.ReLU()
+                nn.Linear(obs_space.shape[0], hidden_dim), nn.ReLU()
             )
         else:
             raise ValueError(f"Unsupported observation space shape: {obs_space}")
         final_layer = None
         if isinstance(env.action_space, BoxTypes):
             final_layer =  nn.Sequential(
-                nn.Linear(256, env.action_space.shape[0] *2), NormalParamExtractor()
+                nn.Linear(hidden_dim, env.action_space.shape[0] *2), NormalParamExtractor()
             )
         elif isinstance(env.action_space, DiscTypes):
-            final_layer = nn.Linear(256, env.action_space.n)
+            final_layer = nn.Linear(hidden_dim, env.action_space.n)
         else:
             raise ValueError(f"Unsupported action space type: {type(env.action_space)}")
 
@@ -56,9 +56,9 @@ class ActionNetwork(nn.Module):
 
         self.actor = nn.Sequential(
             first_layer,
-            nn.Linear(flattened_shape, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(flattened_shape, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             final_layer
         )
         with torch.no_grad():  # avoid tracking in autograd
@@ -88,7 +88,7 @@ class ValueEstimator(nn.Module):
             )
         elif len(obs_space.shape) == 1:
             first_layer = nn.Sequential(
-                nn.Linear(obs_space.shape[0], 256), nn.ReLU()
+                nn.Linear(obs_space.shape[0], hidden_dim), nn.ReLU()
             )
         else:
             raise ValueError(f"Unsupported observation space shape: {obs_space}")
@@ -101,10 +101,10 @@ class ValueEstimator(nn.Module):
         #print(f"dummy_output shape: {dummy_output.shape}")
         self.critic  = nn.Sequential(
             first_layer,
-            nn.Linear(flattened_shape, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 1)
+            nn.Linear(flattened_shape, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
         )
         with torch.no_grad():           # avoid tracking in autograd
             for layer in self.critic:
@@ -169,22 +169,7 @@ def get_PPO_policy(get_env_func):
     #print(f"{actor=}")
     #input("Press enter to continue")
     return actor, value_module
-#https://pytorch.org/rl/main/tutorials/coding_dqn.html
-def get_EGDQN(get_env_func, eps_start, eps_end, total_frames):
-    env = get_env_func()
-    actor_net = ActionNetwork(get_env_func)
-    actor = QValueActor(actor_net, in_keys=["observation"], spec = env.action_spec).to(device)
-    exploration_module = EGreedyModule(
-        spec = env.action_spec,
-        annealing_num_steps=total_frames,
-        eps_init=eps_start,
-        eps_end=eps_end
-    )
-    actor_explore = TensorDictSequential(
-        actor,
-        exploration_module
-    ).to(device)
-    return actor, actor_explore
+
 
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
@@ -193,8 +178,9 @@ if __name__ == "__main__":
     get_env_func = get_mcd_env
 
 
-    #predictor1, predictor2 = get_PPO_policy(get_env_func)
-    predictor1, predictor2 = get_EGDQN(get_env_func, 0.9, 0.05, 100_000)
+    predictor1, predictor2 = get_PPO_policy(get_env_func)
+    #https://pytorch.org/rl/main/tutorials/coding_dqn.html
+
     #print(f"{ppo_policy=}")
     env = get_env_func()
     print("Running policy:", predictor1(env.reset()))

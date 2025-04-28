@@ -19,7 +19,8 @@ def record_video(env, policy,  video_path):
     td = env.reset()
     done = False
     video = []
-    while not done:
+    max_frames = 5000
+    while not done and len(video) < max_frames:
         img = td["pixels"].squeeze(0).permute(1,2,0).cpu().numpy()
         video.append(img)
         cv2.imshow(f"Game {video_path}", img)

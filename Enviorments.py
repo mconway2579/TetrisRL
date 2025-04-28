@@ -45,7 +45,7 @@ tetrominoes = {
 
 def new_piece():
     """Create a new random tetromino with its shape and spawn position."""
-    t = 4#random.randint(1, 7) #4
+    t = random.randint(1, 7) #4
     shape = tetrominoes[t].copy()
     h, w = shape.shape
     pos = np.array([-h, (BOARD_WIDTH - w) // 2], dtype=int)
@@ -179,7 +179,9 @@ class TetrisEnv(gym.Env):
             if self.board[row, :].any():
                 highest_pixel = min(highest_pixel, row)
         height = self.board_h - highest_pixel
-        reward += (-0.36 * n_holes) + (-0.51*height) + (-1*self.game_over)
+        #print(f"Height: {height}, Holes: {n_holes}")
+        #reward += (-0.36 * n_holes) + (-0.51*height) + (-1*self.game_over)
+        reward += (-0.36 * n_holes) + (-0.75*height) + (-1*self.game_over)
 
         obs = self._get_obs()            # shape (H, W, 3)
         return obs[...], reward, self.game_over, False, {}
@@ -330,14 +332,14 @@ def get_mcd_env():
 
 if __name__ == '__main__':
     #print(list(GymEnv.available_envs))
-    env_name = "MC"
+    env_name = "Tetris"
     env = None
     action_mapping = None
     if env_name == "Tetris":
         env = get_tetris_env()
         action_mapping = {ord('a'): 0, ord('d'): 1, ord('w'): 2, ord('s'): 3}
     elif env_name == "MC":
-        env = get_mc_env()
+        env = get_mcd_env()
         action_mapping = {ord('a'): [-1.0], ord('d'):[ 1.0]}
     else:
         raise ValueError("Unknown environment name")
