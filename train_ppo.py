@@ -1,6 +1,6 @@
 from data_collector import get_collecter, get_replay_buffer
 from networks import get_PPO_policy
-from utils import select_device
+from utils import select_device, record_video, graph_logs
 from torchrl.objectives import PPOLoss, ClipPPOLoss
 from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
 import torch
@@ -15,20 +15,12 @@ import numpy as np
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
 
-def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total_frames = 1_000_000, batches_to_store = 1024, mini_batch_size = 32, training_iter_per_batch = 10, gamma=0.99, lmbda=0.95, entropy_eps=1, critic_coef=1, clip_grad=1.0):
+def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector=256, total_frames=1_500_000, batches_to_store=1024, mini_batch_size=128, training_iter_per_batch=10, gamma=0.999, lmbda=0.95, entropy_eps=2, critic_coef=0.5, clip_grad=1):
     n_batches = np.ceil(total_frames / frames_per_collector)
 
     n_batches = np.ceil(n_batches / 10) * 10
 
     total_frames = (n_batches * frames_per_collector) +1
-
-    ENTROPY_START = 0.03          # 3× your current 1 e-2
-    ENTROPY_END   = 0.002
-    ENTROPY_HORIZON = total_frames   # linear decay across the run
-
-    def current_entropy_coef(frame):
-        pct = min(frame / ENTROPY_HORIZON, 1.0)
-        return torch.tensor(ENTROPY_START * (1 - pct) + ENTROPY_END)
 
     save_dir = f"results/ppo_{env_name}_{lr=}_{total_frames=}_{mini_batch_size=}_{training_iter_per_batch=}_{entropy_eps=}/"
     os.makedirs(save_dir, exist_ok=True)
@@ -63,6 +55,8 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
         # these keys match by default but we set this for completeness
         critic_coef=critic_coef,
         loss_critic_type="smooth_l1",
+        normalize_advantage=True,
+        value_clip=True
     )
    
 
@@ -91,10 +85,14 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
     # We iterate over the collector until it reaches the total number of frames it was
     # designed to collect:
     for collector_batch, tensordict_data in enumerate(collector):
+        if len(tensordict_data["action"].shape) == 2 and tensordict_data["action"].shape[1] == 1:
+            tensordict_data["action"] = tensordict_data["action"].squeeze(1)
         # we now have a batch of data to work with. Let's learn something from it.
         objective_loss_acc = 0.0
         critic_loss_acc = 0.0
         entropy_loss_acc = 0.0
+        tensordict_data["next", "reward"] *= collector_batch/n_batches
+        #print(f"{logs['actions']}")
         for _ in range(training_iter_per_batch):
             # We'll need an "advantage" signal to make PPO work.
             # We re-compute it at each epoch as its value depends on the value
@@ -107,10 +105,8 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
                 mini_batch = replay_buffer.sample(mini_batch_size)
                 #print(f"mini_batch: {mini_batch}")
                 #input("Press enter to continue")
-                loss_module.entropy_coef = current_entropy_coef(
-                    collector_batch * frames_per_collector
-                )
                 loss_vals = loss_module(mini_batch.to(device))
+                #print(f"loss_vals: {loss_vals}")
                 #print(f"loss_vals: {loss_vals}")
                 loss_value = (
                     loss_vals["loss_objective"]
@@ -160,7 +156,10 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
                 env = get_env_func()
                 eval_rollout = env.rollout(1000, ppo_policy)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
-                total_reward =  eval_rollout["next", "reward"].sum().item()
+                if env_name == "tetris":
+                    total_reward =  eval_rollout["step_count"].max().item()
+                else:
+                    total_reward =  eval_rollout["next", "reward"].sum().item()
                 logs["eval reward (sum)"].append(
                    total_reward
                 )
@@ -183,56 +182,7 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
 
 
     fig_dir = f"{save_dir}figures/"
-    os.makedirs(fig_dir, exist_ok=True)
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["reward"])
-    plt.title("training rewards (average)")
-    plt.savefig(f"{fig_dir}training_rewards.png")
-    plt.close()             # closes the current figure
-
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["step_count"])
-    plt.title("Max step count (training)")
-    plt.savefig(f"{fig_dir}MaxStepCount.png")
-    plt.close()             # closes the current figure
-
-
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["eval reward (sum)"])
-    plt.title("Eval Reward")
-    plt.savefig(f"{fig_dir}SumEvalReward.png")
-    plt.close()             # closes the current figure
-
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["eval step_count"])
-    plt.title("Avg step count (test)")
-    plt.savefig(f"{fig_dir}EvalStepCount.png")
-    plt.close()             # closes the current figure
-
-
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["loss objective"])
-    plt.title("Loss Objective")
-    plt.savefig(f"{fig_dir}LossObjective.png")
-    plt.close()             # closes the current figure
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["loss critic"])
-    plt.title("Loss Critic")
-    plt.savefig(f"{fig_dir}LossCritic.png")
-    plt.close()             # closes the current figure
-
-    plt.figure(figsize=(10, 10))
-    plt.plot(logs["loss entropy"])
-    plt.title("Loss Entropy")
-    plt.savefig(f"{fig_dir}LossEntropy.png")
-    plt.close()             # closes the current figure
-    
+    graph_logs(logs, save_dir)
 
 
     model_video_dir = f"{save_dir}model_video/"
@@ -243,35 +193,14 @@ def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector = 256, total
     td = env.reset()
     for i in range(5):
         env = get_env_func()
-        done = False
-        video = []
-        video_out = f"{model_video_dir}{i}.mp4"
-        while not done:
-            img = td["pixels"].squeeze(0).permute(1,2,0).cpu().numpy()
-            video.append(img)
-            cv2.imshow(f"Game {get_env_func}", img)
-            cv2.waitKey(1)
-            td = ppo_policy(td)
-            td = env.step(td)['next']
-            done = td["done"]
-        fourcc  = cv2.VideoWriter_fourcc(*"mp4v")   # <─ THIS LINE
-        w,h,c = video[0].shape
-        writer = cv2.VideoWriter(video_out, fourcc, 30, (w, h), isColor=True)
-        if not writer.isOpened():
-            raise RuntimeError(f"Could not open VideoWriter for {video_out}")
-        for frame in video:
-            frame = np.clip(frame, 0, 1) * 255 if frame.dtype.kind == "f" else frame
-            frame = frame.astype(np.uint8, copy=False)
-            writer.write(frame)
-        writer.release()
-        env.reset()
+        record_video(env, ppo_policy, f"{model_video_dir}{i}.mp4")
     return
         
 
 
 if __name__ == "__main__":
     os.makedirs("results", exist_ok=True)
-    train_ppo(get_mcc_env, "MCC", total_frames = 50_000, frames_per_collector = 128)
-    #train_ppo(get_mcd_env, "MCd", total_frames = 50_000)
+    #train_ppo(get_mcc_env, "MCC", total_frames = 50_000, frames_per_collector = 128)
+    train_ppo(get_mcd_env, "MCd", total_frames = 1_000_000)
 
-    #train_ppo(get_tetris_env, "Tetris")
+    train_ppo(get_tetris_env, "tetris", total_frames = 1_000_000)

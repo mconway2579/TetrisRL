@@ -59,9 +59,9 @@ if __name__ == "__main__":
 
     device = select_device()
     print(f"Using device: {device}")
-    #get_env_func = get_tetris_env
+    get_env_func = get_tetris_env
     #get_env_func = get_mc_env
-    get_env_func = get_mcd_env
+    #get_env_func = get_mcd_env
     env = get_env_func()
     # Create a random policy
     policy = RandomPolicy(env.action_spec)
@@ -98,7 +98,7 @@ if __name__ == "__main__":
             print(f"{k}: {v.shape}")
         print("\n\n")
         if count > 1:
-            break
+           break
     print("Done collecting data")
     count = 0
     while True:

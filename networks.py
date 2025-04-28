@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
 from utils import select_device
-from tensordict.nn import TensorDictModule
+from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.modules import ProbabilisticActor, TanhNormal
 from torch.distributions import Categorical
 from tensordict.nn.distributions import NormalParamExtractor
@@ -10,6 +10,8 @@ from tensordict.nn.distributions import NormalParamExtractor
 import gym
 import gymnasium 
 import cv2
+from torchrl.modules import EGreedyModule, QValueActor
+
 device = select_device()
 
 BoxTypes   = (gym.spaces.Box,   gymnasium.spaces.Box)
@@ -17,7 +19,7 @@ DiscTypes  = (gym.spaces.Discrete, gymnasium.spaces.Discrete)
 def flat_size(space):
     return int(reduce(mul, space.shape, 1))
 
-class PPOPolicy(nn.Module):
+class ActionNetwork(nn.Module):
     def __init__(self, get_env_func):
         super().__init__()
         env = get_env_func()
@@ -55,8 +57,8 @@ class PPOPolicy(nn.Module):
         self.actor = nn.Sequential(
             first_layer,
             nn.Linear(flattened_shape, 256), nn.ReLU(),
-            #nn.Linear(256, 256), nn.ReLU(),
-            #nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
             final_layer
         )
         with torch.no_grad():  # avoid tracking in autograd
@@ -100,8 +102,8 @@ class ValueEstimator(nn.Module):
         self.critic  = nn.Sequential(
             first_layer,
             nn.Linear(flattened_shape, 256), nn.ReLU(),
-            #nn.Linear(256, 256), nn.ReLU(),
-            #nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
             nn.Linear(256, 1)
         )
         with torch.no_grad():           # avoid tracking in autograd
@@ -118,8 +120,8 @@ class ValueEstimator(nn.Module):
         return value
 
 def get_PPO_policy(get_env_func):
-    base_ppo = PPOPolicy(get_env_func)                      # keeps forward(obs) if you like
-    print(f"{base_ppo=}")
+    base_actor = ActionNetwork(get_env_func)                      # keeps forward(obs) if you like
+    print(f"{ActionNetwork=}")
     base_value = ValueEstimator(get_env_func)
     
     value_module = TensorDictModule(
@@ -132,7 +134,7 @@ def get_PPO_policy(get_env_func):
     actor = None
     if isinstance(action_space, DiscTypes):
         ppo_p    = TensorDictModule(
-            module   = base_ppo,
+            module   = base_actor,
             in_keys  = ["observation"],             # what the env produces
             out_keys = ["logits"]  # what you want stored
         ).to(device)
@@ -146,7 +148,7 @@ def get_PPO_policy(get_env_func):
         ).to(device)
     elif isinstance(action_space, BoxTypes):
         ppo_p    = TensorDictModule(
-            module   = base_ppo,
+            module   = base_actor,
             in_keys  = ["observation"],             # what the env produces
             out_keys = ["loc", "scale"]  # what you want stored
         ).to(device)
@@ -167,6 +169,22 @@ def get_PPO_policy(get_env_func):
     #print(f"{actor=}")
     #input("Press enter to continue")
     return actor, value_module
+#https://pytorch.org/rl/main/tutorials/coding_dqn.html
+def get_EGDQN(get_env_func, eps_start, eps_end, total_frames):
+    env = get_env_func()
+    actor_net = ActionNetwork(get_env_func)
+    actor = QValueActor(actor_net, in_keys=["observation"], spec = env.action_spec).to(device)
+    exploration_module = EGreedyModule(
+        spec = env.action_spec,
+        annealing_num_steps=total_frames,
+        eps_init=eps_start,
+        eps_end=eps_end
+    )
+    actor_explore = TensorDictSequential(
+        actor,
+        exploration_module
+    ).to(device)
+    return actor, actor_explore
 
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
@@ -175,14 +193,15 @@ if __name__ == "__main__":
     get_env_func = get_mcd_env
 
 
-    ppo_policy, value_module = get_PPO_policy(get_env_func)
+    #predictor1, predictor2 = get_PPO_policy(get_env_func)
+    predictor1, predictor2 = get_EGDQN(get_env_func, 0.9, 0.05, 100_000)
     #print(f"{ppo_policy=}")
     env = get_env_func()
-    print("Running policy:", ppo_policy(env.reset()))
-    print("Running value:", value_module(env.reset()))
+    print("Running policy:", predictor1(env.reset()))
+    print("Running value:", predictor2(env.reset()))
     #input("Press enter to continue")
     #collector = get_collecter(get_tetris_env, ppo_policy)
-    collector = get_collecter(get_env_func, ppo_policy, 256, 100_000)
+    collector = get_collecter(get_env_func, predictor1, 256, 100_000)
     replay_buffer = get_replay_buffer(1024, 256, 32)
 
     for count, batch_td in enumerate(collector):
@@ -213,8 +232,8 @@ if __name__ == "__main__":
     while True:
         train_td = replay_buffer.sample().to(device)
         batch_size = train_td.size()[0]
-        out_p = ppo_policy(train_td)
-        out_v = value_module(train_td)
+        out_p = predictor1(train_td)
+        out_v = predictor2(train_td)
         print(f"out_v: {out_v}")
         print(f"out_p: {out_p}")
         for i in range(batch_size):
