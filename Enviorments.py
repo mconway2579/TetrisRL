@@ -187,9 +187,19 @@ class TetrisEnv(gym.Env):
             if self.board[row, :].any():
                 highest_pixel = min(highest_pixel, row)
         height = self.board_h - highest_pixel
-        #print(f"Height: {height}, Holes: {n_holes}")
+        # Calculate bumpiness (sum of absolute differences between adjacent columns)
+        mask = (self.board != 0)
+        # np.argmax returns 0 if no True, so we need to zero out those cases explicitly
+        rows, cols = self.board.shape
+        first_idxs = np.argmax(mask, axis=0)
+        # but columns that are entirely empty should have height=0
+        empty_cols = ~mask.any(axis=0)
+        heights = rows - first_idxs
+        heights[empty_cols] = 0
+        bumpiness = int(np.abs(np.diff(heights)).sum())
+        print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}")
         #reward += (-0.36 * n_holes) + (-0.51*height) + (-1*self.game_over)
-        reward = (1*lines)+(-0.36 * n_holes) + (-0.75*height) + (-10*self.game_over)
+        reward = (10*lines)+(-0.36 * n_holes) + (-0.75*height) + (-10*self.game_over) + (-1*bumpiness)
 
         obs = self._get_obs()            # shape (H, W, 3)
         return obs[...], reward, self.game_over, False, {}
@@ -290,6 +300,7 @@ class AbsVelReward(Transform):
         # absolute velocity is state[1] inside *next* observation
         velocity_bonus = next_tensordict["observation"][..., 1].abs()
         next_tensordict["reward"].add_(velocity_bonus)   # in-place +=
+        next_tensordict["reward"]+= (next_tensordict["observation"][..., 0] >= 0.5) * 100
         return next_tensordict
 
     def _reset(self, tensordict, next_tensordict):

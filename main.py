@@ -13,4 +13,4 @@ if __name__ == "__main__":
 
     # Train DQN
     train_dqn(get_mcd_env, "mcd", total_frames=frames)
-    train_dqn(get_tetris_env, "tetris", top_total_frames=frames)
+    train_dqn(get_tetris_env, "tetris", total_frames=frames)

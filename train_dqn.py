@@ -68,9 +68,9 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
    
 
     optim = torch.optim.Adam(loss_module.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optim, total_frames // frames_per_collector, 0.0
-    )
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optim, total_frames // frames_per_collector, 0.0
+    # )
 
     #batch_td = next(iter(collector))
     #print(f"Batch: {batch_td.shape}")
@@ -137,7 +137,7 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
                 # optim.zero_grad()
                 target_updater.step() # update target network
 
-        logs["reward"].append(tensordict_data["next", "reward"].mean().item())
+        logs["avg_reward"].append(tensordict_data["next", "reward"].mean().item())
         max_step_count = tensordict_data["step_count"].max().item()
         #print(f"MaxStepCount: {max_step_count}")
         logs["step_count"].append(max_step_count)
@@ -155,7 +155,7 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
         # logs["loss entropy"].append(entropy_loss_acc)
         
         #print(f"{tensordict_data=}")
-        out_str = f"Batch {collector_batch}/{total_frames//frames_per_collector}: reward:{logs['reward'][-1]}, step_count:{logs['step_count'][-1]}, lr:{logs['lr'][-1]}"
+        #out_str = f"Batch {collector_batch}/{total_frames//frames_per_collector}: reward:{logs['reward'][-1]}, step_count:{logs['step_count'][-1]}, lr:{logs['lr'][-1]}"
         #print(out_str, end='\n', flush=True)
         #with open(out_file_txt, "a") as f:
         #    f.write(out_str + "\n")
@@ -193,7 +193,7 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
 
         # We're also using a learning rate scheduler. Like the gradient clipping,
         # this is a nice-to-have but nothing necessary for PPO to work.
-        scheduler.step()
+        #scheduler.step()
 
 
     fig_dir = f"{save_dir}figures/"
