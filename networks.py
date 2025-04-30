@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
+from Enviorments import get_tetris_env, get_mcd_env
 from utils import select_device
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.modules import ProbabilisticActor, TanhNormal
@@ -39,15 +39,7 @@ class ActionNetwork(nn.Module):
             )
         else:
             raise ValueError(f"Unsupported observation space shape: {obs_space}")
-        final_layer = None
-        if isinstance(env.action_space, BoxTypes):
-            final_layer =  nn.Sequential(
-                nn.Linear(hidden_dim, env.action_space.shape[0] *2), NormalParamExtractor()
-            )
-        elif isinstance(env.action_space, DiscTypes):
-            final_layer = nn.Linear(hidden_dim, env.action_space.n)
-        else:
-            raise ValueError(f"Unsupported action space type: {type(env.action_space)}")
+        
 
         observation = env.reset()["observation"]
         dummy_input = torch.zeros(1, *observation.shape)
@@ -59,7 +51,7 @@ class ActionNetwork(nn.Module):
             nn.Linear(flattened_shape, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-            final_layer
+            nn.Linear(hidden_dim, env.action_space.n)
         )
         with torch.no_grad():  # avoid tracking in autograd
             for layer in self.actor:
@@ -171,11 +163,28 @@ def get_PPO_policy(get_env_func):
     return actor, value_module
 
 
+#https://pytorch.org/rl/main/tutorials/coding_dqn.html
+def get_EGDQN(get_env_func, eps_start, eps_end, total_frames):
+    env = get_env_func()
+    actor_net = ActionNetwork(get_env_func)
+    actor = QValueActor(actor_net, in_keys=["observation"], spec = env.action_spec).to(device)
+    exploration_module = EGreedyModule(
+        spec = env.action_spec,
+        annealing_num_steps=total_frames,
+        eps_init=eps_start,
+        eps_end=eps_end
+    )
+    actor_explore = TensorDictSequential(
+        actor,
+        exploration_module
+    ).to(device)
+    return actor, actor_explore
+
+
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
-    #get_env_func = get_tetris_env
-    #get_env_func = get_mc_env
-    get_env_func = get_mcd_env
+    get_env_func = get_tetris_env
+    #get_env_func = get_mcd_env
 
 
     predictor1, predictor2 = get_PPO_policy(get_env_func)

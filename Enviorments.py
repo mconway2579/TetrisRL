@@ -52,7 +52,7 @@ tetrominoes = {
 
 def new_piece():
     """Create a new random tetromino with its shape and spawn position."""
-    t = random.randint(1, 7) #4
+    t = 4#andom.randint(1, 7) #4
     shape = tetrominoes[t].copy()
     h, w = shape.shape
     pos = np.array([-h, (BOARD_WIDTH - w) // 2], dtype=int)
