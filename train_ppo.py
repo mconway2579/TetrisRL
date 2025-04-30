@@ -15,7 +15,7 @@ import numpy as np
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
 
-def train_ppo(get_env_func, env_name, lr=3e-4, frames_per_collector=256, total_frames=1_500_000, batches_to_store=1024, mini_batch_size=128, training_iter_per_batch=10, gamma=0.999, lmbda=0.95, entropy_eps=2, critic_coef=0.5, clip_grad=1):
+def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_frames=1_000_000, batches_to_store=1024, mini_batch_size=128, training_iter_per_batch=10, gamma=0.999, lmbda=0.95, entropy_eps=2, critic_coef=0.5, clip_grad=1):
     n_batches = np.ceil(total_frames / frames_per_collector)
 
     n_batches = np.ceil(n_batches / 10) * 10

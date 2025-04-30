@@ -18,8 +18,7 @@ from networks import get_EGDQN  # Use get_EGDQN from the second code snippet
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
 
-def train_dqn(get_env_func, env_name, lr=3e-4, frames_per_collector=256, total_frames=1_500_000, batches_to_store=512, mini_batch_size=128, training_iter_per_batch=10, gamma=0.999, lmbda=0.95, entropy_eps=2, critic_coef=0.5, clip_grad=1, eps_start=1.0,
-    eps_end=0.05):
+def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_frames=1_000_000, batches_to_store=1024, mini_batch_size=128, training_iter_per_batch=10, gamma=0.999, entropy_eps=2, clip_grad=1, eps_start=1.0, eps_end=0.05):
     n_batches = np.ceil(total_frames / frames_per_collector)
     n_batches = np.ceil(n_batches / 10) * 10
     total_frames = (n_batches * frames_per_collector) +1
@@ -145,6 +144,13 @@ def train_dqn(get_env_func, env_name, lr=3e-4, frames_per_collector=256, total_f
         logs["lr"].append(optim.param_groups[0]["lr"])
 
         logs["loss objective"].append(objective_loss_acc)
+        expl_mod = actor_explore[-1]
+
+        # the current ε is stored in expl_mod.eps
+        current_eps = expl_mod.eps.item()      # e.g. 0.7324
+
+        logs["epsilons"].append(current_eps)
+        expl_mod.step(frames=frames_per_collector)
         # logs["loss critic"].append(critic_loss_acc)
         # logs["loss entropy"].append(entropy_loss_acc)
         
