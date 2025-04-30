@@ -107,7 +107,7 @@ def clear_lines(board):
 
 class TetrisEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
-    def __init__(self, render_mode: str | None = None):
+    def __init__(self, render_mode: str | None = None, flatten: bool = False):
         super().__init__()
 
         if render_mode is None:
@@ -121,11 +121,19 @@ class TetrisEnv(gym.Env):
 
         self.action_space = Discrete(4)
         # batch_size=1, H×W×3 float32 image in [0,1]
-        self.observation_space = Box(
-            low=0.0, high=1.0,
-            shape=(3, self.board_h, self.board_w),
-            dtype=np.float32
-        )
+        self.flatten = flatten
+        if not self.flatten:
+            self.observation_space = Box(
+                low=0.0, high=1.0,
+                shape=(3, self.board_h, self.board_w),
+                dtype=np.float32
+            )
+        if self.flatten:
+            self.observation_space = Box(
+                low=0.0, high=1.0,
+                shape=(self.board_h * self.board_w * 3,),
+                dtype=np.float32
+            )
         self.reset()
 
     def reset(self):
@@ -134,6 +142,8 @@ class TetrisEnv(gym.Env):
         self.game_over = False
         self.total_lines = 0
         obs = self._get_obs()            # shape (H, W, 3)
+        if self.flatten:
+            obs = obs.reshape(-1)
         return obs[...], {}        # shape (1, H, W, 3)
 
     def step(self, action):
@@ -197,11 +207,20 @@ class TetrisEnv(gym.Env):
         heights = rows - first_idxs
         heights[empty_cols] = 0
         bumpiness = int(np.abs(np.diff(heights)).sum())
-        print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}")
-        #reward += (-0.36 * n_holes) + (-0.51*height) + (-1*self.game_over)
-        reward = (10*lines)+(-0.36 * n_holes) + (-0.75*height) + (-10*self.game_over) + (-1*bumpiness)
+
+
+
+        # Calculate sum across each row
+        row_sums = self.board.sum(axis=1)
+        # Add exponential reward for filled rows
+        row_completion = (row_sums / BOARD_WIDTH) ** 2 # Exponential scaling
+        row_reward = row_completion.sum()  # Sum across all rows
+        print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_reward=}")
+        reward = (10*lines)+(-0.36 * n_holes) + (-0.75*height) + (-10*self.game_over) + (-1*bumpiness) + row_reward
 
         obs = self._get_obs()            # shape (H, W, 3)
+        if self.flatten:
+            obs = obs.reshape(-1)
         return obs[...], reward, self.game_over, False, {}
 
     def _get_obs(self):
@@ -271,7 +290,28 @@ class TetrisEnv(gym.Env):
 
 def get_tetris_env():
     # 1) build wrapped env with integer actions
-    base_env = TetrisEnv(render_mode = 'rgb_array')
+    base_env = TetrisEnv(render_mode = 'rgb_array', flatten=False)
+    wrapped_env = GymWrapper(
+        base_env,
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        categorical_action_encoding=True,
+        from_pixels=True,
+        pixels_only=False,
+        auto_reset=False
+    )
+    transformed_env = TransformedEnv(
+        wrapped_env,
+        Compose(
+            StepCounter(step_count_key="step_count"),
+            DoubleToFloat(),
+            ToTensorImage()   # H×W×C uint8 → C×H×W float32
+        )
+    ).to(device)
+    return transformed_env
+
+def get_tetris_env_flat():
+    # 1) build wrapped env with integer actions
+    base_env = TetrisEnv(render_mode = 'rgb_array', flatten=True)
     wrapped_env = GymWrapper(
         base_env,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
@@ -300,7 +340,7 @@ class AbsVelReward(Transform):
         # absolute velocity is state[1] inside *next* observation
         velocity_bonus = next_tensordict["observation"][..., 1].abs()
         next_tensordict["reward"].add_(velocity_bonus)   # in-place +=
-        next_tensordict["reward"]+= (next_tensordict["observation"][..., 0] >= 0.5) * 100
+        next_tensordict["reward"]+= (next_tensordict["observation"][..., 0] >= 0.49) * 100
         return next_tensordict
 
     def _reset(self, tensordict, next_tensordict):
@@ -331,11 +371,14 @@ def get_mcd_env():
 
 if __name__ == '__main__':
     #print(list(GymEnv.available_envs))
-    env_name = "Tetris"
+    env_name = "TetrisFlat"
     env = None
     action_mapping = None
     if env_name == "Tetris":
         env = get_tetris_env()
+        action_mapping = {ord('a'): 0, ord('d'): 1, ord('w'): 2, ord('s'): 3}
+    elif env_name == "TetrisFlat":
+        env = get_tetris_env_flat()
         action_mapping = {ord('a'): 0, ord('d'): 1, ord('w'): 2, ord('s'): 3}
     elif env_name == "MC":
         env = get_mcd_env()
@@ -376,15 +419,15 @@ if __name__ == '__main__':
         #print(f"action: {td=}")
         td = env.step(td)
         
-        #print(f"{td=}")
+        print(f"{td=}")
         td = td["next"]
         reward = td["reward"].item()
-        print(f"{reward=}")
+        #print(f"{reward=}")
         #print(f"step: {td=}")
         #print(f"{td['reward'].item()=}")
 
         #done = td["done"].item()
-        print(f"{done = }")
+        #print(f"{done = }")
         if done:
             env.reset()
         
