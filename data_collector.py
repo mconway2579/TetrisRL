@@ -8,7 +8,7 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.envs.utils import ExplorationType
 
-from Enviorments import get_tetris_env, get_mcc_env, get_mcd_env
+from Enviorments import get_tetris_env, get_mcd_env
 from utils import select_device
 
 import cv2
@@ -59,9 +59,8 @@ if __name__ == "__main__":
 
     device = select_device()
     print(f"Using device: {device}")
-    get_env_func = get_tetris_env
-    #get_env_func = get_mc_env
-    #get_env_func = get_mcd_env
+    #get_env_func = get_tetris_env
+    get_env_func = get_mcd_env
     env = get_env_func()
     # Create a random policy
     policy = RandomPolicy(env.action_spec)
