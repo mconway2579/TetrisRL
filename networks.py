@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from Enviorments import get_tetris_env, get_mcd_env
+from Enviorments import get_tetris_env, get_mcd_env, get_tetris_env_flat
 from utils import select_device
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.modules import ProbabilisticActor, TanhNormal
@@ -185,6 +185,7 @@ if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
     get_env_func = get_tetris_env
     #get_env_func = get_mcd_env
+    #get_env_func = get_tetris_env_flat
 
 
     predictor1, predictor2 = get_PPO_policy(get_env_func)

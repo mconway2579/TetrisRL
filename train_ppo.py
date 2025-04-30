@@ -2,7 +2,7 @@ from data_collector import get_collecter, get_replay_buffer
 from networks import get_PPO_policy
 from utils import select_device, record_video, graph_logs
 from torchrl.objectives import PPOLoss, ClipPPOLoss
-from Enviorments import get_tetris_env, get_mcd_env
+from Enviorments import get_tetris_env, get_mcd_env, get_tetris_env_flat
 import torch
 import matplotlib.pyplot as plt
 from collections import defaultdict
@@ -80,6 +80,7 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
     out_file_txt = f"{save_dir}training.txt"
     with open(out_file_txt, "w") as f:
         f.write(save_dir + "\n")
+        f.write(f"{ppo_policy}\n")
     best_model = None
     best_model_score = -np.inf
     # We iterate over the collector until it reaches the total number of frames it was
@@ -201,6 +202,7 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
 if __name__ == "__main__":
     os.makedirs("results", exist_ok=True)
     #train_ppo(get_mcc_env, "MCC", total_frames = 50_000, frames_per_collector = 128)
-    train_ppo(get_mcd_env, "MCd", total_frames = 10_000)
+    # train_ppo(get_mcd_env, "MCd", total_frames = 10_000)
 
-    train_ppo(get_tetris_env, "tetris", total_frames = 10_000)
+    #train_ppo(get_tetris_env, "tetris", total_frames = 10_000)
+    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 10_000)
