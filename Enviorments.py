@@ -7,12 +7,19 @@ import torch
 from tensordict import TensorDict
 from torchrl.envs import GymWrapper
 from torchrl.envs.utils import check_env_specs
+from torchrl.envs.libs.gym import GymEnv
+from torchrl.envs.transforms import Transform
+
 from torchrl.envs import (
     Compose,
     DoubleToFloat,
     ObservationNorm,
     StepCounter,
     TransformedEnv,
+    ToTensorImage,
+    GrayScale,
+    Resize,
+    RenameTransform
 )
 import utils
 # -----------------------------
@@ -151,6 +158,7 @@ class TetrisEnv(gym.Env):
                 self.current_piece['pos'][0] -= 1
 
         # Gravity
+        lines = 0
         self.current_piece['pos'][0] += 1
         if check_collision(self.board, self.current_piece):
             self.current_piece['pos'][0] -= 1
@@ -181,7 +189,7 @@ class TetrisEnv(gym.Env):
         height = self.board_h - highest_pixel
         #print(f"Height: {height}, Holes: {n_holes}")
         #reward += (-0.36 * n_holes) + (-0.51*height) + (-1*self.game_over)
-        reward += (-0.36 * n_holes) + (-0.75*height) + (-1*self.game_over)
+        reward = (1*lines)+(-0.36 * n_holes) + (-0.75*height) + (-10*self.game_over)
 
         obs = self._get_obs()            # shape (H, W, 3)
         return obs[...], reward, self.game_over, False, {}
@@ -273,40 +281,19 @@ def get_tetris_env():
     return transformed_env
 
 
-from torchrl.envs.libs.gym import GymEnv
-from torchrl.envs import (
-    Compose,
-    DoubleToFloat,
-    ObservationNorm,
-    StepCounter,
-    TransformedEnv,
-    ToTensorImage,
-    GrayScale,
-    Resize,
-    RenameTransform
-)
 
 
-def get_mcc_env():
-    # 1. Ask GymEnv itself to capture frames -------------------------------
-    base_env = GymEnv(
-        "MountainCarContinuous-v0",
-        device=device,
-        render_mode="rgb_array",
-        from_pixels=True,      # ← capture env.render(...) automatically
-        pixels_only=False     #    keep the 2-D state observation too
-    )
 
-    # 2. Transform stack ----------------------------------------------------
-    env = TransformedEnv(
-        base_env,
-        Compose(
-            ToTensorImage(in_keys=["pixels"]),   # H×W×C uint8 → C×H×W float32 in [0,1]
-            Resize((84, 84)),  # downsample to 84×84
-            StepCounter()
-        )
-    )
-    return env
+
+class AbsVelReward(Transform):
+    def _step(self, tensordict, next_tensordict):
+        # absolute velocity is state[1] inside *next* observation
+        velocity_bonus = next_tensordict["observation"][..., 1].abs()
+        next_tensordict["reward"].add_(velocity_bonus)   # in-place +=
+        return next_tensordict
+
+    def _reset(self, tensordict, next_tensordict):
+        return next_tensordict
 
 def get_mcd_env():
     # 1. Ask GymEnv itself to capture frames -------------------------------
@@ -325,6 +312,7 @@ def get_mcd_env():
         Compose(
             ToTensorImage(in_keys=["pixels"]),   # H×W×C uint8 → C×H×W float32 in [0,1]
             Resize((84, 84)),  # downsample to 84×84
+            #AbsVelReward(), 
             StepCounter()
         )
     )
@@ -340,7 +328,7 @@ if __name__ == '__main__':
         action_mapping = {ord('a'): 0, ord('d'): 1, ord('w'): 2, ord('s'): 3}
     elif env_name == "MC":
         env = get_mcd_env()
-        action_mapping = {ord('a'): [-1.0], ord('d'):[ 1.0]}
+        action_mapping = {ord('a'): 0, ord('s'):1, ord('d'):2}
     else:
         raise ValueError("Unknown environment name")
     check_env_specs(env)
@@ -359,7 +347,7 @@ if __name__ == '__main__':
     # 3) loop: render + read key + step via tensordict
     while True:
         pixels = td["pixels"].permute(1,2,0).cpu().numpy()
-        print(f"pixels: {pixels.shape=}")
+        #print(f"pixels: {pixels.shape=}")
         cv2.imshow("Window", pixels)
         cv2.waitKey(1)
 
@@ -370,16 +358,21 @@ if __name__ == '__main__':
             continue
         action_rep = action_mapping[key]
         #action_rep = env.action_space.sample()
-        print(f"{env.action_space=}")
-        print(f"{action_rep=}")
+        #print(f"{env.action_space=}")
+        #print(f"{action_rep=}")
         td["action"] = action_rep
 
-        print(f"action: {td=}")
+        #print(f"action: {td=}")
+        td = env.step(td)
+        
+        #print(f"{td=}")
+        td = td["next"]
+        reward = td["reward"].item()
+        print(f"{reward=}")
+        #print(f"step: {td=}")
+        #print(f"{td['reward'].item()=}")
 
-        td = env.step(td)["next"]
-        print(f"step: {td=}")
-
-        done = td["done"].item()
+        #done = td["done"].item()
         print(f"{done = }")
         if done:
             env.reset()
