@@ -50,7 +50,8 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
     with open(out_file_txt, "w") as f:
         f.write(save_dir + "\n")
         f.write(f"{actor=}\n")
-    best_model_reward = -np.inf
+    best_model_reward_sum = -np.inf
+    best_model_reward_avg = -np.inf
     best_model_step_count = -np.inf
 
     for collector_batch, tensordict_data in enumerate(collector):
@@ -105,18 +106,25 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
                 env.reset()
                 eval_rollout = torch.cat(rollouts, dim=0)
 
-                logs["eval avg reward"].append(eval_rollout["next", "reward"].mean().item())
-                sum_reward = eval_rollout["next", "reward"].sum().item()# + eval_rollout["next", "reward"].sum().item()
+                avg_reward = eval_rollout["next", "reward"].mean().item()
+                sum_reward = eval_rollout["next", "reward"].sum().item()
                 total_steps = eval_rollout["step_count"].sum().item()
                 
+                logs["eval avg reward"].append(avg_reward)
                 logs["eval sum reward"].append(sum_reward)
                 logs["eval step_count"].append(total_steps)
-                if sum_reward >= best_model_reward:
-                    best_model_reward = sum_reward
+                if sum_reward >= best_model_reward_sum:
+                    best_model_reward_sum = sum_reward
                     torch.save(actor.state_dict(), f"{save_dir}best_sum_reward_model.pth")
                     with open(out_file_txt, "a") as f:
-                        f.write(f"Best model saved with reward {best_model_reward}")
-                    print(f"Best model saved with reward {best_model_reward}")
+                        f.write(f"Best model saved with reward sum {best_model_reward_sum}")
+                    print(f"Best model saved with reward sum {best_model_reward_sum}")
+                if avg_reward >= best_model_reward_avg:
+                    best_model_reward_avg = avg_reward
+                    torch.save(actor.state_dict(), f"{save_dir}best_model_reward_avg.pth")
+                    with open(out_file_txt, "a") as f:
+                        f.write(f"Best model saved with reward avg {best_model_reward_avg}")
+                    print(f"Best model saved with reward avg {best_model_reward_avg}")
                 if total_steps >= best_model_step_count:
                     best_model_step_count = total_steps
                     torch.save(actor.state_dict(), f"{save_dir}best_step_count_model.pth")
@@ -146,6 +154,15 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
         env = get_env_func()
         record_video(env, actor, f"{model_video_dir}{i}.mp4")
 
+    model_video_dir = f"{save_dir}avg_rewards_model_video/"
+    os.makedirs(model_video_dir, exist_ok=True)
+
+    actor.load_state_dict(torch.load(f"{save_dir}best_model_reward_avg.pth", map_location=device))
+    actor.eval()
+    td = env.reset()
+    for i in range(5):
+        env = get_env_func()
+        record_video(env, actor, f"{model_video_dir}{i}.mp4")
 
     model_video_dir = f"{save_dir}best_step_count_model_video/"
     os.makedirs(model_video_dir, exist_ok=True)
