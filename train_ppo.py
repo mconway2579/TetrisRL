@@ -157,7 +157,7 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
                 env = get_env_func()
                 eval_rollout = env.rollout(1000, ppo_policy)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
-                if env_name == "tetris":
+                if "tetris" in env_name.lower():
                     total_reward =  eval_rollout["step_count"].max().item()
                 else:
                     total_reward =  eval_rollout["next", "reward"].sum().item()
