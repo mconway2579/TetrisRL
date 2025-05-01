@@ -52,7 +52,7 @@ tetrominoes = {
 
 def new_piece():
     """Create a new random tetromino with its shape and spawn position."""
-    t = 4#andom.randint(1, 7) #4
+    t = random.randint(1, 7) #4
     shape = tetrominoes[t].copy()
     h, w = shape.shape
     pos = np.array([-h, (BOARD_WIDTH - w) // 2], dtype=int)
@@ -213,10 +213,11 @@ class TetrisEnv(gym.Env):
         # Calculate sum across each row
         row_sums = self.board.sum(axis=1)
         # Add exponential reward for filled rows
-        row_completion = (row_sums / BOARD_WIDTH) ** 2 # Exponential scaling
-        row_reward = row_completion.sum()  # Sum across all rows
-        #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_reward=}")
-        reward = (10*lines)+(-0.36 * n_holes) + (-0.75*height) + (-10*self.game_over) + (-1*bumpiness) + row_reward
+        row_completion = ((row_sums / BOARD_WIDTH)**4).sum()
+        #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}")
+        reward = (10*(lines**2))+(-0.5 * n_holes) + (-1*height) + (-100*self.game_over) + (-2*bumpiness) + (5*row_completion)
+        #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}\n{reward=}")
+
 
         obs = self._get_obs()            # shape (H, W, 3)
         if self.flatten:
@@ -419,7 +420,7 @@ if __name__ == '__main__':
         #print(f"action: {td=}")
         td = env.step(td)
         
-        print(f"{td=}")
+        #print(f"{td=}")
         td = td["next"]
         reward = td["reward"].item()
         #print(f"{reward=}")
