@@ -173,16 +173,18 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
                 eval_rollout = env.rollout(1000, actor)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
                 if "tetris" in env_name.lower():
-                    total_reward =  eval_rollout["step_count"].max().item()
+                    total_reward =  eval_rollout["step_count"].max().item() + eval_rollout["next", "reward"].sum().item()
                 else:
                     total_reward =  eval_rollout["next", "reward"].sum().item()
                 logs["eval reward (sum)"].append(
                    total_reward
                 )
-                if total_reward > best_model_score:
+                if total_reward >= best_model_score:
                     best_model_score = total_reward
                     best_model = actor.state_dict()
                     torch.save(best_model, f"{save_dir}best_model.pth")
+                    with open(out_file_txt, "a") as f:
+                        f.write(f"Best model saved with score {best_model_score}")
                     print(f"Best model saved with score {best_model_score}")
                 logs["eval step_count"].append(eval_rollout["step_count"].float().mean().item())
                 del eval_rollout
