@@ -5,16 +5,16 @@ import os
 
 if __name__ == "__main__":
     os.makedirs("results", exist_ok=True)
-    frames = 15_000_000
+    frames = 1_000_000
     # Train PPO
     # train_ppo(get_mcd_env, "mcd", total_frames=frames)
-    train_ppo(get_tetris_env, "tetris", total_frames=frames)
+    #train_ppo(get_tetris_env, "tetris", total_frames=frames)
     train_ppo(get_tetris_env_flat, "tetris_flat", total_frames=frames)
 
 
 
     # Train DQN
     # train_dqn(get_mcd_env, "mcd", total_frames=frames)
-    train_dqn(get_tetris_env, "tetris", total_frames=frames)
+   # train_dqn(get_tetris_env, "tetris", total_frames=frames)
     train_dqn(get_tetris_env_flat, "tetris_flat", total_frames=frames)
 

@@ -15,7 +15,7 @@ import numpy as np
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
 
-def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_frames=1_000_000, batches_to_store=2048, mini_batch_size=128, training_iter_per_batch=10, gamma=0.999, lmbda=0.95, entropy_eps=1, critic_coef=0.5, clip_grad=1):
+def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_frames=1_000_000, batches_to_store=2048, mini_batch_size=128, training_iter_per_batch=10, gamma=0.99, lmbda=0.95, entropy_eps=1e-4, critic_coef=1, clip_grad=1):
     n_batches = np.ceil(total_frames / frames_per_collector)
 
     n_batches = np.ceil(n_batches / 10) * 10
@@ -135,22 +135,25 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
                 if sum_reward >= best_model_reward_sum:
                     best_model_reward_sum = sum_reward
                     torch.save(ppo_policy.state_dict(), f"{save_dir}best_model_reward_sum.pth")
+                    torch.save(value_module.state_dict(), f"{save_dir}best_model_reward_sum_value.pth")
                     with open(out_file_txt, "a") as f:
-                        f.write(f"Best model saved with reward sum {best_model_reward_sum}")
+                        f.write(f"Best model saved with reward sum {best_model_reward_sum}\n")
                     print(f"Best model saved with reward sum {best_model_reward_sum}")
 
                 if avg_reward >= best_model_reward_avg:
                     best_model_reward_avg = avg_reward
                     torch.save(ppo_policy.state_dict(), f"{save_dir}best_model_reward_avg.pth")
+                    torch.save(value_module.state_dict(), f"{save_dir}best_model_reward_avg_value.pth")
                     with open(out_file_txt, "a") as f:
-                        f.write(f"Best model saved with reward avg {best_model_reward_avg}")
+                        f.write(f"Best model saved with reward avg {best_model_reward_avg}\n")
                     print(f"Best model saved with reward avg {best_model_reward_avg}")
 
                 if total_steps >= best_model_step_count:
                     best_model_step_count = total_steps
                     torch.save(ppo_policy.state_dict(), f"{save_dir}best_step_count_model.pth")
+                    torch.save(value_module.state_dict(), f"{save_dir}best_step_count_model_value.pth")
                     with open(out_file_txt, "a") as f:
-                        f.write(f"Best model saved with step count {best_model_step_count}")
+                        f.write(f"Best model saved with step count {best_model_step_count}\n")
                         print(f"Best model saved with step count {best_model_step_count}")
                 logs["eval step_count"].append(total_steps)
                 del eval_rollout

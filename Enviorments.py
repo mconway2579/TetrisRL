@@ -25,34 +25,53 @@ import utils
 # -----------------------------
 # Global Settings and Constants
 # -----------------------------
-BOARD_WIDTH = 10
-BOARD_HEIGHT = 20
+BOARD_WIDTH = 5
+BOARD_HEIGHT = 10
 BLOCK_SIZE = 30  # Pixel size for the human (display) view
 device = utils.select_device()
 # -----------------------------
 # Tetromino Definitions (as NumPy boolean arrays)
 # -----------------------------
+# tetrominoes = {
+#     1: np.array([[ True,  True,  True,  True]], dtype=bool),   # I piece (1×4)
+#     2: np.array([[ True, False],
+#                  [ True,  True],
+#                  [False,  True]], dtype=bool),                 # J piece (3×2)
+#     3: np.array([[False,  True],
+#                  [ True,  True],
+#                  [ True, False]], dtype=bool),                 # L piece (3×2)
+#     4: np.array([[ True,  True],
+#                  [ True,  True]], dtype=bool),                 # O piece (2×2)
+#     5: np.array([[False,  True,  True],
+#                  [ True,  True, False]], dtype=bool),          # S piece (2×3)
+#     6: np.array([[ True,  True,  True],
+#                  [False,  True, False]], dtype=bool),          # T piece (2×3)
+#     7: np.array([[ True,  True, False],
+#                  [False,  True,  True]], dtype=bool),          # Z piece (2×3)
+# }
 tetrominoes = {
-    1: np.array([[ True,  True,  True,  True]], dtype=bool),   # I piece (1×4)
-    2: np.array([[ True, False],
-                 [ True,  True],
-                 [False,  True]], dtype=bool),                 # J piece (3×2)
-    3: np.array([[False,  True],
-                 [ True,  True],
-                 [ True, False]], dtype=bool),                 # L piece (3×2)
-    4: np.array([[ True,  True],
-                 [ True,  True]], dtype=bool),                 # O piece (2×2)
-    5: np.array([[False,  True,  True],
-                 [ True,  True, False]], dtype=bool),          # S piece (2×3)
-    6: np.array([[ True,  True,  True],
-                 [False,  True, False]], dtype=bool),          # T piece (2×3)
-    7: np.array([[ True,  True, False],
-                 [False,  True,  True]], dtype=bool),          # Z piece (2×3)
+    # 1 × 1 single square
+    1: np.array([[ True ]], dtype=bool),
+
+    # 2 × 2 solid block
+    2: np.array([[ True,  True],
+                 [ True,  True]], dtype=bool),
+
+    # 2 × 1 domino  (rotate in-game for the 1 × 2 version)
+    3: np.array([[ True ],
+                 [ True ]], dtype=bool),
+
+    # 2 × 2 with one square missing → little “L”
+    4: np.array([[ True, False],
+                 [ True,  True]], dtype=bool),
+
+    5: np.array([[ True, False],
+                 [ False,  True]], dtype=bool),
 }
 
 def new_piece():
     """Create a new random tetromino with its shape and spawn position."""
-    t = random.randint(1, 7) #4
+    t = random.randint(1,5)#random.randint(1, 7) #4
     shape = tetrominoes[t].copy()
     h, w = shape.shape
     pos = np.array([-h, (BOARD_WIDTH - w) // 2], dtype=int)
@@ -215,7 +234,10 @@ class TetrisEnv(gym.Env):
         # Add exponential reward for filled rows
         row_completion = ((row_sums / BOARD_WIDTH)**4).sum()
         #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}")
-        reward = (10*(lines**2))+(-0.5 * n_holes) + (-1*height) + (-100*self.game_over) + (-2*bumpiness) + (5*row_completion)
+        holes_scaling = 1.0 if n_holes == 0 else 1.0 / n_holes
+        height_scaling = 1.0 if height == 0 else 1.0 / height
+        bumpiness_scaling = 1.0 if bumpiness == 0 else 1.0 / bumpiness
+        reward = (10*(lines**2))+(2*holes_scaling) + (2*height_scaling) + (-100*self.game_over) + (2*bumpiness_scaling) + (5*row_completion)
         #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}\n{reward=}")
 
 
