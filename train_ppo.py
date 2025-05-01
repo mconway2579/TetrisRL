@@ -117,7 +117,7 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
                 # execute a rollout with the trained policy
                 env = get_env_func()
                 rollouts = []
-                for i in range(10):
+                for i in range(5):
                     env.reset()
                     rollout = env.rollout(1000, ppo_policy)
                     rollouts.append(rollout)
