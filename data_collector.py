@@ -30,6 +30,7 @@ def get_collecter(env_func, policy, frames_per_collector, total_frames):
         total_frames=total_frames,
         device = device,
         split_trajs=False,
+        compile_policy=True,
         exploration_type=ExplorationType.RANDOM,   # <── force stochastic rollouts
         init_random_frames=frames_per_collector*10,
         reset_at_each_iter=True,    # resets _between_ batches
@@ -48,7 +49,8 @@ def get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size):
     replay_buffer = ReplayBuffer(
         storage=storage,
         sampler=SamplerWithoutReplacement(),  # you can swap in PrioritizedSampler, etc.
-        batch_size=mini_batch_size
+        batch_size=mini_batch_size,
+        prefetch=4
     )
     return replay_buffer
 

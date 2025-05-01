@@ -40,9 +40,9 @@ def train_dqn(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
     
     # Define DQN loss
     env = get_env_func()
-    loss_module = DQNLoss(actor, action_space=env.action_spec).to(device)
+    loss_module = DQNLoss(actor, action_space=env.action_spec, double_dqn = True, delay_value=True, loss_function="smooth_l1").to(device)
     loss_module.make_value_estimator(gamma=gamma)
-    target_updater = SoftUpdate(loss_module, tau=0.995) #soft update of the target network
+    target_updater = SoftUpdate(loss_module, tau=0.99) #soft update of the target network
     
     # clip_epsilon = 0.2
     # """loss_module = PPOLoss(
