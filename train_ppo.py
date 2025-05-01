@@ -155,7 +155,17 @@ def train_ppo(get_env_func, env_name, lr=1e-4, frames_per_collector=256, total_f
             with set_exploration_type(ExplorationType.DETERMINISTIC), torch.no_grad():
                 # execute a rollout with the trained policy
                 env = get_env_func()
-                eval_rollout = env.rollout(1000, ppo_policy)
+                eval_rollout1 = env.rollout(1000, ppo_policy)
+                env.reset()
+                eval_rollout2 = env.rollout(1000, ppo_policy)
+                env.reset()
+                eval_rollout3 = env.rollout(1000, ppo_policy)
+                env.reset()
+                eval_rollout4 = env.rollout(1000, ppo_policy)
+                env.reset()
+                eval_rollout4 = env.rollout(1000, ppo_policy)
+                env.reset()
+                eval_rollout = torch.cat([eval_rollout1, eval_rollout2, eval_rollout3, eval_rollout4], dim=0)
                 logs["eval reward"].append(eval_rollout["next", "reward"].mean().item())
                 if "tetris" in env_name.lower():
                     total_reward =  eval_rollout["step_count"].max().item() + eval_rollout["next", "reward"].sum().item()
