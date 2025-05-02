@@ -2,3 +2,4 @@ CodeAgent.txt
 hfapi_token.txt
 __pycache__/
 *.pth
+results/

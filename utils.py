@@ -20,14 +20,14 @@ def record_video(env, policy,  video_path):
     done = False
     video = []
     max_frames = 5000
-    upscale_for_display = 100
+    upscale_for_display = 20
     h, w, c = td["pixels"].shape[1], td["pixels"].shape[2], td["pixels"].shape[0]
     while not done and len(video) < max_frames:
         img = td["pixels"].squeeze(0).permute(1,2,0).cpu().numpy()
         img = cv2.resize(img, (w*upscale_for_display, h*upscale_for_display), interpolation=cv2.INTER_NEAREST)
         video.append(img)
-        #cv2.imshow(f"Game {video_path}", img)
-        #cv2.waitKey(1)
+        cv2.imshow(f"Game {video_path}", img)
+        cv2.waitKey(1)
         td = policy(td)
         td = env.step(td)['next']
         done = td["done"]

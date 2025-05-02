@@ -17,7 +17,7 @@ device = select_device()
 BoxTypes   = (gym.spaces.Box,   gymnasium.spaces.Box)
 DiscTypes  = (gym.spaces.Discrete, gymnasium.spaces.Discrete)
 
-hidden_dim = 1024
+hidden_dim = 2048
 
 class ActionNetwork(nn.Module):
     def __init__(self, get_env_func):

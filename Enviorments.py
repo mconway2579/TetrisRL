@@ -234,9 +234,9 @@ class TetrisEnv(gym.Env):
         # Add exponential reward for filled rows
         row_completion = ((row_sums / BOARD_WIDTH)**4).sum()
         #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}")
-        holes_scaling = 1.0 if n_holes == 0 else 1.0 / n_holes
-        height_scaling = 1.0 if height == 0 else 1.0 / height
-        bumpiness_scaling = 1.0 if bumpiness == 0 else 1.0 / bumpiness
+        holes_scaling = 1.0 / (n_holes+1)
+        height_scaling = 1.0 / (height+1)
+        bumpiness_scaling = 1.0 / (bumpiness+1)
         reward = (10*(lines**2))+(2*holes_scaling) + (2*height_scaling) + (-100*self.game_over) + (2*bumpiness_scaling) + (5*row_completion)
         #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}\n{reward=}")
 

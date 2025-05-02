@@ -3,7 +3,7 @@ from tensordict import TensorDict
 from torchrl.envs import GymWrapper
 from torchrl.envs.utils import RandomPolicy
 from torchrl.collectors import MultiSyncDataCollector, SyncDataCollector
-from torchrl.data.replay_buffers import ReplayBuffer
+from torchrl.data.replay_buffers import ReplayBuffer, PrioritizedReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.envs.utils import ExplorationType
@@ -48,10 +48,18 @@ def get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size):
     )
     replay_buffer = ReplayBuffer(
         storage=storage,
-        sampler=SamplerWithoutReplacement(),  # you can swap in PrioritizedSampler, etc.
+        sampler=SamplerWithoutReplacement(),
         batch_size=mini_batch_size,
         prefetch=4
     )
+
+    # replay_buffer = PrioritizedReplayBuffer(
+    #     alpha = 0.7
+    #     beta = 0.9,
+    #     storage=storage,
+    #     batch_size=mini_batch_size,
+    #     prefetch=4
+    # )
     return replay_buffer
 
 
