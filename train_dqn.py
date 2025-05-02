@@ -59,12 +59,32 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
             tensordict_data["action"] = tensordict_data["action"].squeeze(1)
         dqn_loss_acc = 0.0
         data_view = tensordict_data.reshape(-1)
-        replay_buffer.extend(data_view)
+        #print(f"{data_view=}")
+        idx = replay_buffer.extend(data_view)
+        rewards    = data_view["next", "reward"].squeeze(-1)          # [B]
+        dones      = data_view["next", "done"].squeeze(-1).float()    # [B]
+        q_sa       = data_view["chosen_action_value"].squeeze(-1)     # Q(s,a) [B]
 
+        # 2) compute Q-values at next states
+        with torch.no_grad():
+            next_obs = data_view["next"]               # [B, ...]
+            max_q_next = actor(next_obs)["chosen_action_value"].squeeze(-1)
+        # 3) build the TD‐target:  r + γ·maxQ(s',a')·(1−done)
+        td_target = rewards + gamma * max_q_next * (1.0 - dones)      # [B]
+        # 4) raw TD‐error
+        td_error = td_target - q_sa                                    # [B]
+
+        # 5) absolute TD‐error (for PER priorities, etc.)
+        abs_td_error = td_error.abs()
+        #print(f"td_target: {td_target.shape=}, {abs_td_error.shape=}, {q_sa.shape=}, {rewards.shape=}, {dones.shape=}, {max_q_next.shape=}, {td_error.shape=}")
+
+        # 6) update priorities in the replay buffer
+        replay_buffer.update_priority(idx, abs_td_error)
         for _ in range(training_iter_per_batch):
             for _ in range(frames_per_collector // mini_batch_size):
-                mini_batch = replay_buffer.sample(mini_batch_size)
-                loss_vals = loss_module(mini_batch.to(device))
+                mini_batch, info = replay_buffer.sample(mini_batch_size, return_info=True)
+                mini_batch = mini_batch.to(device)
+                loss_vals = loss_module(mini_batch)
                 loss_value = loss_vals["loss"]
                 dqn_loss_acc += loss_vals["loss"].item()
 
@@ -78,6 +98,26 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                 optim.step()
                 # optim.zero_grad()
                 target_updater.step() # update target network
+                #print(f"{mini_batch=}")
+                rewards    = mini_batch["next", "reward"].squeeze(-1)          # [B]
+                dones      = mini_batch["next", "done"].squeeze(-1).float()    # [B]
+                q_sa       = mini_batch["chosen_action_value"].squeeze(-1)     # Q(s,a) [B]
+
+                # 2) compute Q-values at next states
+                with torch.no_grad():
+                    next_obs = mini_batch["next"]               # [B, ...]
+                    max_q_next = actor(next_obs)["chosen_action_value"].squeeze(-1)
+                # 3) build the TD‐target:  r + γ·maxQ(s',a')·(1−done)
+                td_target = rewards + gamma * max_q_next * (1.0 - dones)      # [B]
+                # 4) raw TD‐error
+                td_error = td_target - q_sa                                    # [B]
+
+                # 5) absolute TD‐error (for PER priorities, etc.)
+                abs_td_error = td_error.abs()
+                #print(f"td_target: {td_target.shape=}, {abs_td_error.shape=}, {q_sa.shape=}, {rewards.shape=}, {dones.shape=}, {max_q_next.shape=}, {td_error.shape=}")
+
+                # 6) update priorities in the replay buffer
+                replay_buffer.update_priority(info["index"], abs_td_error)
 
         logs["collector avg_reward"].append(tensordict_data["next", "reward"].mean().item())
         max_step_count = tensordict_data["step_count"].max().item()
