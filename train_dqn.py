@@ -9,7 +9,7 @@ from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration
 import cv2
 import os
 import numpy as np
-
+import time
 # for dqn
 from torchrl.objectives import DQNLoss, SoftUpdate
 
@@ -53,7 +53,8 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     best_model_reward_sum = -np.inf
     best_model_reward_avg = -np.inf
     best_model_step_count = -np.inf
-
+    start_time = time.time()
+    last_eval_time = time.time()
     for collector_batch, tensordict_data in enumerate(collector):
         if len(tensordict_data["action"].shape) == 2 and tensordict_data["action"].shape[1] == 1:
             tensordict_data["action"] = tensordict_data["action"].squeeze(1)
@@ -173,7 +174,8 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                     print(f"Best model saved with step count {best_model_step_count}")
                 logs["eval step_count"].append(total_steps)
                 del eval_rollout
-            eval_str = f"Eval {collector_batch//10}/{(total_frames//frames_per_collector)//10}: avg eval reward:{logs['eval avg reward'][-1]}, sum eval reward :{logs['eval sum reward'][-1]}, StepCount:{logs['eval step_count'][-1]}"
+            eval_str = f"Eval {collector_batch//10}/{(total_frames//frames_per_collector)//10}: avg eval reward:{logs['eval avg reward'][-1]}, sum eval reward :{logs['eval sum reward'][-1]}, StepCount:{logs['eval step_count'][-1]}, total_time:{time.time()-start_time:.2f} seconds, Time since last eval: {time.time()-last_eval_time:.2f} seconds"
+            last_eval_time = time.time()
             print(eval_str, end='\n', flush=True)
             with open(out_file_txt, "a") as f:
                 f.write(eval_str + "\n")
