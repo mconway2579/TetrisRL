@@ -25,8 +25,8 @@ import utils
 # -----------------------------
 # Global Settings and Constants
 # -----------------------------
-BOARD_WIDTH = 5
-BOARD_HEIGHT = 10
+BOARD_WIDTH = 10
+BOARD_HEIGHT = 20
 BLOCK_SIZE = 30  # Pixel size for the human (display) view
 device = utils.select_device()
 # -----------------------------

@@ -70,17 +70,25 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
         objective_loss_acc = 0.0
         critic_loss_acc = 0.0
         entropy_loss_acc = 0.0
-        tensordict_data["next", "reward"] *= collector_batch/n_batches
         for _ in range(training_iter_per_batch):
 
             advantage_module(tensordict_data)
             data_view = tensordict_data.reshape(-1)
-            replay_buffer.extend(data_view)
-
+            idx = replay_buffer.extend(data_view)
+            #print(f"{data_view=}")
+            rewards     = data_view["next", "reward"].squeeze(-1)        # [B]
+            dones       = data_view["next", "done"].squeeze(-1).float()  # [B]
+            values      = data_view["state_value"].squeeze(-1)           # V(s_t)  [B]
+            next_values = data_view["next", "state_value"].squeeze(-1)   # V(s_{t+1})  [B]
+            td_target = rewards + gamma * next_values * (1.0 - dones)
+            td_error = td_target - values   
+            replay_buffer.update_priority(idx, td_error.abs())
             for _ in range(frames_per_collector // mini_batch_size):
-                mini_batch = replay_buffer.sample(mini_batch_size)
+                mini_batch, info = replay_buffer.sample(mini_batch_size, return_info=True)
+                mini_batch = mini_batch.to(device)
+                advantage_module(mini_batch)
 
-                loss_vals = loss_module(mini_batch.to(device))
+                loss_vals = loss_module(mini_batch)
                 loss_value = (
                     loss_vals["loss_objective"]
                     + loss_vals["loss_critic"]
@@ -99,6 +107,16 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                 )
 
                 optim.step()
+
+                rewards     = mini_batch["next", "reward"].squeeze(-1)        # [B]
+                dones       = mini_batch["next", "done"].squeeze(-1).float()  # [B]
+                values      = mini_batch["state_value"].squeeze(-1)           # V(s_t)  [B]
+                next_values = mini_batch["next", "state_value"].squeeze(-1)   # V(s_{t+1})  [B]
+                td_target = rewards + gamma * next_values * (1.0 - dones)
+                td_error = td_target - values
+                #print(f"TD Error: {td_error.max()}, {td_error.min()}, {td_error.mean()}")
+
+                replay_buffer.update_priority(info["index"], td_error.abs())
                 # optim.zero_grad()
 
         logs["collector avg_reward"].append(tensordict_data["next", "reward"].mean().item())

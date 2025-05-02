@@ -29,8 +29,8 @@ class ActionNetwork(nn.Module):
         first_layer = None
         if isinstance(obs_space, BoxTypes) and len(obs_space.shape) == 3:
             first_layer = nn.Sequential(
-                nn.Conv2d(3, 32, 3, stride=2), nn.ReLU(),
-                nn.Conv2d(32, 64, 3, stride=2), nn.ReLU(),
+                nn.Conv2d(3, 32, 3, stride=1, padding=1), nn.ReLU(),
+                nn.Conv2d(32, 64, 3, stride=1, padding=1), nn.ReLU(),
                 nn.Flatten(start_dim=1),
             )
         elif len(obs_space.shape) == 1:
@@ -183,9 +183,9 @@ def get_EGDQN(get_env_func, eps_start, eps_end, total_frames):
 
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
-    get_env_func = get_tetris_env
+    #get_env_func = get_tetris_env
     #get_env_func = get_mcd_env
-    #get_env_func = get_tetris_env_flat
+    get_env_func = get_tetris_env_flat
 
 
     predictor1, predictor2 = get_PPO_policy(get_env_func)

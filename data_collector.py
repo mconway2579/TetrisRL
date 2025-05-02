@@ -7,7 +7,7 @@ from torchrl.data.replay_buffers import ReplayBuffer, PrioritizedReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.envs.utils import ExplorationType
-
+import numpy as np
 from Enviorments import get_tetris_env, get_mcd_env, get_tetris_env_flat
 from utils import select_device
 
@@ -46,20 +46,20 @@ def get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size):
         device="cpu",
         ndim=1
     )
-    replay_buffer = ReplayBuffer(
-        storage=storage,
-        sampler=SamplerWithoutReplacement(),
-        batch_size=mini_batch_size,
-        prefetch=4
-    )
-
-    # replay_buffer = PrioritizedReplayBuffer(
-    #     alpha = 0.7
-    #     beta = 0.9,
+    # replay_buffer = ReplayBuffer(
     #     storage=storage,
+    #     sampler=SamplerWithoutReplacement(),
     #     batch_size=mini_batch_size,
     #     prefetch=4
     # )
+
+    replay_buffer = PrioritizedReplayBuffer(
+        alpha = 0.7,
+        beta = 0.9,
+        storage=storage,
+        batch_size=mini_batch_size,
+        prefetch=4
+    )
     return replay_buffer
 
 
@@ -87,10 +87,15 @@ if __name__ == "__main__":
     replay_buffer = get_replay_buffer(total_batches, fpc, mini_batch_size)
 
     for count, batch_td in enumerate(collector):
-        print(f"Batch {count}: {batch_td.shape}")
-        print(f"Batch: {batch_td}")
+        #print(f"Batch {count}: {batch_td.shape}")
+        #print(f"Batch: {batch_td}")
         batch_size = batch_td.shape[0]
-        replay_buffer.extend(batch_td)
+        idx = replay_buffer.extend(batch_td)
+        p = np.abs(batch_td["next", "reward"].squeeze(1).cpu().numpy()) + 1e-6
+        # print("  nan:", np.isnan(p).sum(),
+        #     " inf:", np.isinf(p).sum(),
+        #     "  min/max:", p.min(), p.max())
+        replay_buffer.update_priority(idx,p)
         for j in range(batch_size):
             # done flags
             d = batch_td["done"][j]                    
