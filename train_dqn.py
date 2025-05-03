@@ -66,6 +66,8 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
         rewards    = data_view["next", "reward"].squeeze(-1)          # [B]
         dones      = data_view["next", "done"].squeeze(-1).float()    # [B]
         q_sa       = data_view["chosen_action_value"].squeeze(-1)     # Q(s,a) [B]
+        if len(q_sa.shape) == 2:
+            q_sa = q_sa.squeeze(1)
 
         # 2) compute Q-values at next states
         with torch.no_grad():
@@ -104,6 +106,8 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                 rewards    = mini_batch["next", "reward"].squeeze(-1)          # [B]
                 dones      = mini_batch["next", "done"].squeeze(-1).float()    # [B]
                 q_sa       = mini_batch["chosen_action_value"].squeeze(-1)     # Q(s,a) [B]
+                if len(q_sa.shape) == 2:
+                    q_sa = q_sa.squeeze(1)
 
                 # 2) compute Q-values at next states
                 with torch.no_grad():
@@ -117,6 +121,7 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                 # 5) absolute TD‐error (for PER priorities, etc.)
                 abs_td_error = td_error.abs()
                 #print(f"td_target: {td_target.shape=}, {abs_td_error.shape=}, {q_sa.shape=}, {rewards.shape=}, {dones.shape=}, {max_q_next.shape=}, {td_error.shape=}")
+
 
                 # 6) update priorities in the replay buffer
                 replay_buffer.update_priority(info["index"], abs_td_error)
@@ -228,9 +233,9 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
             env = get_env_func()
             record_video(env, actor, f"{model_video_dir}{i}.mp4")
         lines_cleared = []
-        for i in range(10):
+        for i in range(32):
             env.reset()
-            rollout = env.rollout(10000, actor)
+            rollout = env.rollout(1000, actor)
             rollouts.append(rollout)
             lines_cleared.append(rollout["next", "total_lines"].max().item())
         with open(eval_file, "a") as f:
@@ -244,5 +249,5 @@ if __name__ == "__main__":
     #train_ppo(get_mcc_env, "MCC", total_frames = 50_000, frames_per_collector = 128)
     # train_dqn(get_mcd_env, "MCd", total_frames = 10_000)
 
-    #train_dqn(get_tetris_env, "tetris", total_frames = 10_000)
-    train_dqn(get_tetris_env_flat, "tetris_flat", total_frames = 20_000)
+    train_dqn(get_tetris_env, "tetris", total_frames = 10_000)
+    train_dqn(get_tetris_env_flat, "tetris_flat", total_frames = 10_000)

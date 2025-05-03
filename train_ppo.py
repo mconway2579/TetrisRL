@@ -226,9 +226,9 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
             env = get_env_func()
             record_video(env, ppo_policy, f"{model_video_dir}{i}.mp4")
         lines_cleared = []
-        for i in range(10):
+        for i in range(32):
             env.reset()
-            rollout = env.rollout(10000, ppo_policy)
+            rollout = env.rollout(1000, ppo_policy)
             rollouts.append(rollout)
             lines_cleared.append(rollout["next", "total_lines"].max().item())
         with open(eval_file, "a") as f:
@@ -242,5 +242,5 @@ if __name__ == "__main__":
     #train_ppo(get_mcc_env, "MCC", total_frames = 50_000, frames_per_collector = 128)
     # train_ppo(get_mcd_env, "MCd", total_frames = 10_000)
 
-    #train_ppo(get_tetris_env, "tetris", total_frames = 10_000)
-    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 20_000)
+    train_ppo(get_tetris_env, "tetris", total_frames = 10_000)
+    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 10_000)
