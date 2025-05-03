@@ -41,7 +41,7 @@ def get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size):
     storage_capacity = max_episodes * elements_per_batch
     storage = LazyTensorStorage(
         max_size=storage_capacity,
-        device="cpu",
+        device=device,
         ndim=1
     )
     # replay_buffer = ReplayBuffer(

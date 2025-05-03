@@ -17,7 +17,7 @@ device = select_device()
 BoxTypes   = (gym.spaces.Box,   gymnasium.spaces.Box)
 DiscTypes  = (gym.spaces.Discrete, gymnasium.spaces.Discrete)
 
-hidden_dim = 2048
+hidden_dim = 512
 
 class ActionNetwork(nn.Module):
     def __init__(self, get_env_func):
@@ -183,9 +183,9 @@ def get_EGDQN(get_env_func, eps_start, eps_end, total_frames):
 
 if __name__ == "__main__":
     from data_collector import get_collecter, get_replay_buffer
-    #get_env_func = get_tetris_env
+    get_env_func = get_tetris_env
     #get_env_func = get_mcd_env
-    get_env_func = get_tetris_env_flat
+    #get_env_func = get_tetris_env_flat
 
 
     predictor1, predictor2 = get_PPO_policy(get_env_func)
