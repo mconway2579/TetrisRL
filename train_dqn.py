@@ -156,7 +156,7 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                 logs["eval step_count"].append(total_steps)
                 if sum_reward >= best_model_reward_sum:
                     best_model_reward_sum = sum_reward
-                    torch.save(actor.state_dict(), f"{save_dir}best_sum_reward_model.pth")
+                    torch.save(actor.state_dict(), f"{save_dir}best_model_reward_sum.pth")
                     with open(out_file_txt, "a") as f:
                         f.write(f"Best model saved with reward sum {best_model_reward_sum}\n")
                     print(f"Best model saved with reward sum {best_model_reward_sum}")
@@ -186,56 +186,23 @@ def train_dqn(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     graph_logs(logs, fig_dir)
 
 
-    model_video_dir = f"{save_dir}sum_rewards_model_video/"
-    os.makedirs(model_video_dir, exist_ok=True)
-
-    inital_state_dict = {k: v.detach().cpu().clone().to(device) for k, v in actor.state_dict().items()}
-
-    actor.load_state_dict(torch.load(f"{save_dir}best_sum_reward_model.pth", map_location=device))
-    assert any(
-        not torch.allclose(new, inital_state_dict[k], atol=1e-6)
-        for k, new in actor.state_dict().items()
-    ), "Policy parameters did not update!"
-
-    actor.eval()
-    td = env.reset() # why we need to reset the env?
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, actor, f"{model_video_dir}{i}.mp4")
-
-    model_video_dir = f"{save_dir}avg_rewards_model_video/"
-    os.makedirs(model_video_dir, exist_ok=True)
-
-    actor.load_state_dict(torch.load(f"{save_dir}best_model_reward_avg.pth", map_location=device))
-    assert any(
-        not torch.allclose(new, inital_state_dict[k], atol=1e-6)
-        for k, new in actor.state_dict().items()
-    ), "Policy parameters did not update!"
-
-    
-    actor.eval()
-    td = env.reset()
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, actor, f"{model_video_dir}{i}.mp4")
-
-    model_video_dir = f"{save_dir}best_step_count_model_video/"
-    os.makedirs(model_video_dir, exist_ok=True)
-
-    actor.load_state_dict(torch.load(f"{save_dir}best_step_count_model.pth", map_location=device))
-    assert any(
-        not torch.allclose(new, inital_state_dict[k], atol=1e-6)
-        for k, new in actor.state_dict().items()
-    ), "Policy parameters did not update!"
-
-    actor.eval()
-    td = env.reset() # why we need to reset the env?
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, actor, f"{model_video_dir}{i}.mp4")
 
 
-        
+    initial_state_dict = {k: v.detach().cpu().clone().to(device) for k, v in actor.state_dict().items()}
+    for checkpoint in ["best_model_reward_sum", "best_model_reward_avg", "best_step_count_model"]:
+        actor.load_state_dict(torch.load(f"{save_dir}{checkpoint}.pth", map_location=device))
+        assert any(
+            not torch.allclose(new, initial_state_dict[k], atol=1e-6)
+            for k, new in actor.state_dict().items()
+        ), "Policy parameters did not update!"
+        model_video_dir = f"{save_dir}{checkpoint}/"
+        os.makedirs(model_video_dir, exist_ok=True)
+
+        actor.eval()
+        td = env.reset()
+        for i in range(5):
+            env = get_env_func()
+            record_video(env, actor, f"{model_video_dir}{i}.mp4")
     return
         
 
@@ -246,4 +213,4 @@ if __name__ == "__main__":
     # train_dqn(get_mcd_env, "MCd", total_frames = 10_000)
 
     #train_dqn(get_tetris_env, "tetris", total_frames = 10_000)
-    train_dqn(get_tetris_env_flat, "tetris_flat", total_frames = 50_000)
+    train_dqn(get_tetris_env_flat, "tetris_flat", total_frames = 20_000)

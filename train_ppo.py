@@ -15,6 +15,21 @@ import numpy as np
 import time
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
+def get_ppo_loss(policy_module, value_module, entropy_eps=1e-4, critic_coef=0.5, clip_epsilon = 0.2):
+    loss_module = ClipPPOLoss(
+        actor_network=policy_module,
+        critic_network=value_module,
+        clip_epsilon=clip_epsilon,
+        entropy_bonus=bool(entropy_eps),
+        entropy_coef=entropy_eps,
+        critic_coef=critic_coef,
+        loss_critic_type="smooth_l1",
+        normalize_advantage=True,
+        value_clip=True,
+        clip_value=True
+    )
+    return loss_module
+
 
 def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_frames=1_000_000, batches_to_store=2048, mini_batch_size=128, training_iter_per_batch=10, gamma=0.99, lmbda=0.95, entropy_eps=1e-4, critic_coef=0.5, clip_grad=1):
     n_batches = np.ceil(total_frames / frames_per_collector)
@@ -33,24 +48,8 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     collector = get_collecter(get_env_func, ppo_policy, frames_per_collector, total_frames)
     replay_buffer = get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size)
 
-    clip_epsilon = 0.2
-    
-    loss_module = ClipPPOLoss(
-        actor_network=ppo_policy,
-        critic_network=value_module,
-        clip_epsilon=clip_epsilon,
-        entropy_bonus=bool(entropy_eps),
-        entropy_coef=entropy_eps,
-        critic_coef=critic_coef,
-        loss_critic_type="smooth_l1",
-        normalize_advantage=True,
-        #value_clip=True
-        clip_value=True,
-    )
-   
-
+    loss_module = get_ppo_loss(ppo_policy, value_module,  entropy_eps=entropy_eps,  critic_coef=critic_coef)
     optim = torch.optim.Adam(loss_module.parameters(), lr=lr)
-
 
 
     advantage_module = GAE(
@@ -193,53 +192,20 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
 
 
     initial_state_dict = {k: v.detach().cpu().clone().to(device) for k, v in ppo_policy.state_dict().items()}
+    for checkpoint in ["best_model_reward_sum", "best_model_reward_avg", "best_step_count_model"]:
+        ppo_policy.load_state_dict(torch.load(f"{save_dir}{checkpoint}.pth", map_location=device))
+        assert any(
+            not torch.allclose(new, initial_state_dict[k], atol=1e-6)
+            for k, new in ppo_policy.state_dict().items()
+        ), "Policy parameters did not update!"
+        model_video_dir = f"{save_dir}{checkpoint}/"
+        os.makedirs(model_video_dir, exist_ok=True)
 
-
-    model_video_dir = f"{save_dir}sum_rewards_model_video/"
-    os.makedirs(model_video_dir, exist_ok=True)
-
-
-    ppo_policy.load_state_dict(torch.load(f"{save_dir}best_model_reward_sum.pth", map_location=device))
-    assert any(
-        not torch.allclose(new, initial_state_dict[k], atol=1e-6)
-        for k, new in ppo_policy.state_dict().items()
-    ), "Policy parameters did not update!"
-    ppo_policy.eval()
-    td = env.reset()
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, ppo_policy, f"{model_video_dir}{i}.mp4")
-
-    
-    model_video_dir = f"{save_dir}avg_rewards_model_video/"
-    os.makedirs(model_video_dir, exist_ok=True)
-    ppo_policy.load_state_dict(torch.load(f"{save_dir}best_model_reward_avg.pth", map_location=device))
-    assert any(
-        not torch.allclose(new, initial_state_dict[k], atol=1e-6)
-        for k, new in ppo_policy.state_dict().items()
-    ), "Policy parameters did not update!"
-
-    ppo_policy.eval()
-    td = env.reset()
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, ppo_policy, f"{model_video_dir}{i}.mp4")
-
-
-    model_video_dir = f"{save_dir}best_step_count_model_video/"
-    os.makedirs(model_video_dir, exist_ok=True)
-
-    ppo_policy.load_state_dict(torch.load(f"{save_dir}best_step_count_model.pth", map_location=device))
-    assert any(
-        not torch.allclose(new, initial_state_dict[k], atol=1e-6)
-        for k, new in ppo_policy.state_dict().items()
-    ), "Policy parameters did not update!"
-
-    ppo_policy.eval()
-    td = env.reset()
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, ppo_policy, f"{model_video_dir}{i}.mp4")
+        ppo_policy.eval()
+        td = env.reset()
+        for i in range(5):
+            env = get_env_func()
+            record_video(env, ppo_policy, f"{model_video_dir}{i}.mp4")
     return
         
 
@@ -250,115 +216,4 @@ if __name__ == "__main__":
     # train_ppo(get_mcd_env, "MCd", total_frames = 10_000)
 
     #train_ppo(get_tetris_env, "tetris", total_frames = 10_000)
-    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 100_000)
-"""
-
-    from torchrl.trainers import Trainer
-    from torchrl.record.loggers.csv import CSVLogger
-    from torchrl.trainers import (
-        LogScalar,
-        LogValidationReward,
-        ReplayBufferTrainer,
-        Trainer,
-        UpdateWeights,
-    )
-    get_env_func = get_tetris_env_flat
-    frames_per_collector = 256
-    total_frames = 10_000_000
-    batches_to_store = 1024
-    mini_batch_size = 32
-    device = select_device()
-
-    ppo_policy, value_module = get_PPO_policy(get_env_func)
-    ppo_policy.to(device)
-    value_module.to(device)
-    collector = get_collecter(get_env_func, ppo_policy, frames_per_collector, total_frames)
-    replay_buffer = get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size)
-    loss_module = ClipPPOLoss(
-        actor_network=ppo_policy,
-        critic_network=value_module,
-        clip_epsilon=0.2,
-        entropy_bonus=True,
-        entropy_coef=1e-4,
-        critic_coef=0.5,
-        loss_critic_type="smooth_l1",
-        normalize_advantage=True,
-        #value_clip=True
-        clip_value=True,
-    ).to(device)
-    optim = torch.optim.Adam(loss_module.parameters(), lr=1e-5)
-    exp_name = f"ppo_trainer"
-    tmpdir = "./ppo_trainer"
-    logger = CSVLogger(exp_name=exp_name, log_dir=tmpdir)
-    trainer = Trainer(
-        collector=collector,
-        total_frames=total_frames,
-        frame_skip=1,
-        loss_module=loss_module,
-        optimizer=optim,
-        logger=logger,
-        optim_steps_per_batch=10,
-        log_interval=10,
-        progress_bar = True
-    )
-
-    # buffer_hook = ReplayBufferTrainer(
-    #     replay_buffer=replay_buffer,
-    #     flatten_tensordicts=True,
-    # )
-    # buffer_hook.register(trainer)
-    weight_updater = UpdateWeights(collector, update_weights_interval=1)
-    weight_updater.register(trainer)
-    test_env = get_env_func()
-    recorder = LogValidationReward(
-        record_interval=100,  # log every 100 optimization steps
-        record_frames=1000,  # maximum number of frames in the record
-        frame_skip=1,
-        policy_exploration=ppo_policy,
-        environment=test_env,
-        exploration_type=ExplorationType.DETERMINISTIC,
-        log_keys=[("next", "reward")],
-        out_keys={("next", "reward"): "rewards"},
-        log_pbar=True,
-    )
-    recorder.register(trainer)
-
-    log_reward = LogScalar(log_pbar=True)
-    log_reward.register(trainer)
-
-    trainer.train()
-    def print_csv_files_in_folder(folder_path):
-        
-        Find all CSV files in a folder and prints the first 10 lines of each file.
-
-        Args:
-            folder_path (str): The relative path to the folder.
-
-        
-        csv_files = []
-        output_str = ""
-        for dirpath, _, filenames in os.walk(folder_path):
-            for file in filenames:
-                if file.endswith(".csv"):
-                    csv_files.append(os.path.join(dirpath, file))
-        for csv_file in csv_files:
-            output_str += f"File: {csv_file}\n"
-            with open(csv_file) as f:
-                for i, line in enumerate(f):
-                    if i == 10:
-                        break
-                    output_str += line.strip() + "\n"
-            output_str += "\n"
-        print(output_str)
-
-
-    print_csv_files_in_folder(logger.experiment.log_dir)
-
-    trainer.shutdown()
-    del trainer
-    for i in range(5):
-        env = get_env_func()
-        record_video(env, ppo_policy, f"./ppo_trainer/ppo_trainer_{i}.mp4")
-
-
-    """
+    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 20_000)
