@@ -188,10 +188,18 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     graph_logs(logs, fig_dir)
 
 
+    initial_state_dict = {k: v.detach().cpu().clone().to(device) for k, v in ppo_policy.state_dict().items()}
+
+
     model_video_dir = f"{save_dir}sum_rewards_model_video/"
     os.makedirs(model_video_dir, exist_ok=True)
 
+
     ppo_policy.load_state_dict(torch.load(f"{save_dir}best_model_reward_sum.pth", map_location=device))
+    assert any(
+        not torch.allclose(new, initial_state_dict[k], atol=1e-6)
+        for k, new in ppo_policy.state_dict().items()
+    ), "Policy parameters did not update!"
     ppo_policy.eval()
     td = env.reset()
     for i in range(5):
@@ -201,8 +209,12 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     
     model_video_dir = f"{save_dir}avg_rewards_model_video/"
     os.makedirs(model_video_dir, exist_ok=True)
-
     ppo_policy.load_state_dict(torch.load(f"{save_dir}best_model_reward_avg.pth", map_location=device))
+    assert any(
+        not torch.allclose(new, initial_state_dict[k], atol=1e-6)
+        for k, new in ppo_policy.state_dict().items()
+    ), "Policy parameters did not update!"
+
     ppo_policy.eval()
     td = env.reset()
     for i in range(5):
@@ -214,6 +226,11 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     os.makedirs(model_video_dir, exist_ok=True)
 
     ppo_policy.load_state_dict(torch.load(f"{save_dir}best_step_count_model.pth", map_location=device))
+    assert any(
+        not torch.allclose(new, initial_state_dict[k], atol=1e-6)
+        for k, new in ppo_policy.state_dict().items()
+    ), "Policy parameters did not update!"
+
     ppo_policy.eval()
     td = env.reset()
     for i in range(5):
@@ -229,4 +246,4 @@ if __name__ == "__main__":
     # train_ppo(get_mcd_env, "MCd", total_frames = 10_000)
 
     #train_ppo(get_tetris_env, "tetris", total_frames = 10_000)
-    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 10_000)
+    train_ppo(get_tetris_env_flat, "tetris_flat", total_frames = 50_000)

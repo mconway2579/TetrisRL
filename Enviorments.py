@@ -25,8 +25,8 @@ import utils
 # -----------------------------
 # Global Settings and Constants
 # -----------------------------
-BOARD_WIDTH = 10
-BOARD_HEIGHT = 20
+BOARD_WIDTH = 5
+BOARD_HEIGHT = 10
 BLOCK_SIZE = 30  # Pixel size for the human (display) view
 device = utils.select_device()
 # -----------------------------
@@ -234,10 +234,10 @@ class TetrisEnv(gym.Env):
         # Add exponential reward for filled rows
         row_completion = ((row_sums / BOARD_WIDTH)**4).sum()
         #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}")
-        holes_scaling = 1.0 / (n_holes+1)
-        height_scaling = 1.0 / (height+1)
-        bumpiness_scaling = 1.0 / (bumpiness+1)
-        reward = (10*(lines**2))+(2*holes_scaling) + (2*height_scaling) + (-100*self.game_over) + (2*bumpiness_scaling) + (5*row_completion)
+        holes_scaling = 1.0 / (n_holes+1)**4
+        height_scaling = 1.0 / (height+1)**4
+        bumpiness_scaling = 1.0 / (bumpiness+1)**4
+        reward = (10*(lines**2))+(2*holes_scaling) + (5*height_scaling) + (-100*self.game_over) + (2*bumpiness_scaling) + (10*row_completion)
         #print(f"{lines=}, {n_holes=}, {height=}, {bumpiness=}, {self.game_over=}, {row_completion=}\n{reward=}")
 
 

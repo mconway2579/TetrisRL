@@ -31,8 +31,6 @@ def get_collecter(env_func, policy, frames_per_collector, total_frames):
         device = device,
         split_trajs=False,
         compile_policy=True,
-        exploration_type=ExplorationType.RANDOM,   # <── force stochastic rollouts
-        init_random_frames=frames_per_collector*10,
         reset_at_each_iter=True,    # resets _between_ batches
         reset_when_done=True        # torn down _within_ a batch on done
     )
