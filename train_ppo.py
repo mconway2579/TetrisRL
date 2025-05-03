@@ -15,23 +15,8 @@ import numpy as np
 import time
 #https://pytorch.org/rl/main/tutorials/coding_ppo.html#policy
 
-def get_ppo_loss(policy_module, value_module, entropy_eps=1e-4, critic_coef=0.5, clip_epsilon = 0.2):
-    loss_module = ClipPPOLoss(
-        actor_network=policy_module,
-        critic_network=value_module,
-        clip_epsilon=clip_epsilon,
-        entropy_bonus=bool(entropy_eps),
-        entropy_coef=entropy_eps,
-        critic_coef=critic_coef,
-        loss_critic_type="smooth_l1",
-        normalize_advantage=True,
-        value_clip=True,
-        clip_value=True
-    )
-    return loss_module
 
-
-def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_frames=1_000_000, batches_to_store=2048, mini_batch_size=128, training_iter_per_batch=10, gamma=0.99, lmbda=0.95, entropy_eps=1e-4, critic_coef=0.5, clip_grad=1):
+def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_frames=1_000_000, batches_to_store=2048, mini_batch_size=128, training_iter_per_batch=10, gamma=0.99, lmbda=0.95, entropy_eps=1e-4, critic_coef=1, clip_grad=1):
     n_batches = np.ceil(total_frames / frames_per_collector)
 
     n_batches = np.ceil(n_batches / 10) * 10
@@ -48,8 +33,23 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
     collector = get_collecter(get_env_func, ppo_policy, frames_per_collector, total_frames)
     replay_buffer = get_replay_buffer(batches_to_store, frames_per_collector, mini_batch_size)
 
-    loss_module = get_ppo_loss(ppo_policy, value_module,  entropy_eps=entropy_eps,  critic_coef=critic_coef)
+    clip_epsilon = 0.2
+    
+    loss_module = ClipPPOLoss(
+        actor_network=ppo_policy,
+        critic_network=value_module,
+        clip_epsilon=clip_epsilon,
+        entropy_bonus=bool(entropy_eps),
+        entropy_coef=entropy_eps,
+        critic_coef=critic_coef,
+        loss_critic_type="smooth_l1",
+        normalize_advantage=True,
+        value_clip=True
+    )
+   
+
     optim = torch.optim.Adam(loss_module.parameters(), lr=lr)
+
 
 
     advantage_module = GAE(
@@ -84,12 +84,11 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
             next_values = data_view["next", "state_value"].squeeze(-1)   # V(s_{t+1})  [B]
             td_target = rewards + gamma * next_values * (1.0 - dones)
             td_error = td_target - values   
-            td_error = td_error.clamp(max=10)
             replay_buffer.update_priority(idx, td_error.abs())
             for _ in range(frames_per_collector // mini_batch_size):
                 mini_batch, info = replay_buffer.sample(mini_batch_size, return_info=True)
                 mini_batch = mini_batch.to(device)
-                #advantage_module(mini_batch)
+                advantage_module(mini_batch)
 
                 loss_vals = loss_module(mini_batch)
                 loss_value = (
@@ -97,7 +96,6 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                     + loss_vals["loss_critic"]
                     + loss_vals["loss_entropy"]
                 )
-                #print(f"loss_vals: {loss_vals}")
                 objective_loss_acc += loss_vals["loss_objective"].item()
                 critic_loss_acc += loss_vals["loss_critic"].item()
                 entropy_loss_acc += loss_vals["loss_entropy"].item()
@@ -118,10 +116,9 @@ def train_ppo(get_env_func, env_name, lr=1e-5, frames_per_collector=256, total_f
                 next_values = mini_batch["next", "state_value"].squeeze(-1)   # V(s_{t+1})  [B]
                 td_target = rewards + gamma * next_values * (1.0 - dones)
                 td_error = td_target - values
-                td_error = td_error.abs().clamp(max=10)
                 #print(f"TD Error: {td_error.max()}, {td_error.min()}, {td_error.mean()}")
 
-                replay_buffer.update_priority(info["index"], td_error)
+                replay_buffer.update_priority(info["index"], td_error.abs())
                 # optim.zero_grad()
 
         logs["collector avg_reward"].append(tensordict_data["next", "reward"].mean().item())
