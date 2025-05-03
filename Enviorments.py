@@ -22,11 +22,13 @@ from torchrl.envs import (
     RenameTransform
 )
 import utils
+import logging
+logging.getLogger("torchrl").setLevel(logging.WARNING) 
 # -----------------------------
 # Global Settings and Constants
 # -----------------------------
 BOARD_WIDTH = 10
-BOARD_HEIGHT = 10
+BOARD_HEIGHT = 20
 BLOCK_SIZE = 30  # Pixel size for the human (display) view
 device = utils.select_device()
 # -----------------------------
@@ -163,7 +165,7 @@ class TetrisEnv(gym.Env):
         obs = self._get_obs()            # shape (H, W, 3)
         if self.flatten:
             obs = obs.reshape(-1)
-        return obs[...], {}        # shape (1, H, W, 3)
+        return obs[...], {"total_lines":np.int32(self.total_lines)}       # shape (1, H, W, 3)
 
     def step(self, action):
         reward = 0
@@ -244,7 +246,7 @@ class TetrisEnv(gym.Env):
         obs = self._get_obs()            # shape (H, W, 3)
         if self.flatten:
             obs = obs.reshape(-1)
-        return obs[...], reward, self.game_over, False, {}
+        return obs[...], reward, self.game_over, False, {"total_lines":np.int32(self.total_lines)}
 
     def _get_obs(self):
         img = np.zeros((self.board_h, self.board_w, 3), dtype=np.uint8)
@@ -322,6 +324,7 @@ def get_tetris_env():
         pixels_only=False,
         auto_reset=False
     )
+    wrapped_env.auto_register_info_dict()
     transformed_env = TransformedEnv(
         wrapped_env,
         Compose(
@@ -343,6 +346,7 @@ def get_tetris_env_flat():
         pixels_only=False,
         auto_reset=False
     )
+    wrapped_env.auto_register_info_dict()
     transformed_env = TransformedEnv(
         wrapped_env,
         Compose(
@@ -417,7 +421,6 @@ if __name__ == '__main__':
     print(f"reset: {td=}")
     obs = td["observation"]
     done = td["done"].item()
-    total_lines = 0
 
     print(f"{obs.shape=}")
 
@@ -455,5 +458,5 @@ if __name__ == '__main__':
             env.reset()
         
 
-    print("Game over! Lines cleared:", total_lines)
+    print("Game over! Lines cleared:", td["total_lines"].item())
     env.close()
